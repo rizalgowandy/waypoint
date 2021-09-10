@@ -143,9 +143,8 @@ func (i *NomadInstaller) Install(
 		s.Update("Creating persistent volume")
 
 		vol := api.CSIVolume{
-
-			ID:   "waypoint19",
-			Name: "waypoint19",
+			ID:   "waypoint1001",
+			Name: "waypoint1001",
 			RequestedCapabilities: []*api.CSIVolumeCapability{
 				{
 					AccessMode:     "single-node-writer",
@@ -707,7 +706,7 @@ func waypointNomadJob(c nomadConfig) *api.Job {
 	}
 
 	if strings.ToLower(c.volumeType) == "csi" {
-		volumeRequest.Source = "waypoint19"
+		volumeRequest.Source = "waypoint1001"
 		volumeRequest.AccessMode = "single-node-writer"
 		volumeRequest.AttachmentMode = "file-system"
 	} else {
@@ -720,6 +719,42 @@ func waypointNomadJob(c nomadConfig) *api.Job {
 
 	job.AddTaskGroup(tg)
 
+	readOnly := false
+	volume := "waypoint-server"
+	destination := "/data"
+	volumeMounts := []*api.VolumeMount{
+		{
+			Volume:      &volume,
+			Destination: &destination,
+			ReadOnly:    &readOnly,
+		},
+	}
+
+	cpu := defaultResourcesCPU
+	mem := defaultResourcesMemory
+
+	preTask := api.NewTask("pre_task", "docker")
+	// Observed WP user and group IDs in the published container, update if those ever change
+	waypointUserID := 100
+	waypointGroupID := 1000
+	preTask.Config = map[string]interface{}{
+		// TODO(xx): pin busybox image
+		"image":   "busybox:latest",
+		"command": "sh",
+		"args":    []string{"-c", fmt.Sprintf("chown -R %d:%d /data/", waypointUserID, waypointGroupID)},
+	}
+	preTask.VolumeMounts = volumeMounts
+	preTask.Resources = &api.Resources{
+		// TODO(xx): make pointer vars for smaller cpu and mem
+		CPU:      &cpu,
+		MemoryMB: &mem,
+	}
+	preTask.Lifecycle = &api.TaskLifecycle{
+		Hook:    "prestart",
+		Sidecar: false,
+	}
+	tg.AddTask(preTask)
+
 	task := api.NewTask("server", "docker")
 	task.Config = map[string]interface{}{
 		"image":          c.serverImage,
@@ -730,21 +765,7 @@ func waypointNomadJob(c nomadConfig) *api.Job {
 	task.Env = map[string]string{
 		"PORT": defaultGrpcPort,
 	}
-
-	readOnly := false
-	volume := "waypoint-server"
-	destination := "/data"
-
-	task.VolumeMounts = []*api.VolumeMount{
-		{
-			Volume:      &volume,
-			Destination: &destination,
-			ReadOnly:    &readOnly,
-		},
-	}
-
-	cpu := defaultResourcesCPU
-	mem := defaultResourcesMemory
+	task.VolumeMounts = volumeMounts
 
 	if c.serverResourcesCPU != "" {
 		cpu, _ = strconv.Atoi(c.serverResourcesCPU)
