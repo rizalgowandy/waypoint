@@ -6,6 +6,7 @@ import { Empty } from 'google-protobuf/google/protobuf/empty_pb';
 import { inject as service } from '@ember/service';
 import ApiService from 'waypoint/services/api';
 import FlashMessagesService from 'waypoint/services/flash-messages';
+import { BufferedChangeset } from 'validated-changeset';
 
 interface ProjectConfigArgs {
   variablesList: ConfigVar.AsObject[];
@@ -52,7 +53,7 @@ export default class ProjectConfigVariablesListComponent extends Component<Proje
   }
 
   @action
-  async saveVariableSettings(variable: ConfigVar.AsObject, deleteVariable?: boolean): Promise<void> {
+  async saveVariableSettings(variable: BufferedChangeset, deleteVariable?: boolean): Promise<void> {
     let req = new ConfigSetRequest();
 
     let projectRef = new Ref.Project();
