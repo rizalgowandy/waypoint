@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package validationext
 
 import (
@@ -5,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/protobuf/ptypes"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 func TestIsDuration(t *testing.T) {
@@ -25,7 +28,7 @@ func TestIsDuration(t *testing.T) {
 		},
 
 		{
-			ptypes.DurationProto(time.Second),
+			durationpb.New(time.Second),
 			true,
 		},
 
@@ -62,25 +65,25 @@ func TestIsDurationRange(t *testing.T) {
 		},
 
 		{
-			ptypes.DurationProto(time.Second),
+			durationpb.New(time.Second),
 			0, time.Minute,
 			true,
 		},
 
 		{
-			ptypes.DurationProto(time.Minute),
+			durationpb.New(time.Minute),
 			0, time.Second,
 			false,
 		},
 
 		{
-			ptypes.DurationProto(time.Second),
+			durationpb.New(time.Second),
 			time.Second, time.Minute,
 			true,
 		},
 
 		{
-			ptypes.DurationProto(time.Minute),
+			durationpb.New(time.Minute),
 			time.Second, time.Minute,
 			true,
 		},

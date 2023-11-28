@@ -1,9 +1,16 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 .panel-header {
   display: flex;
   align-items: center;
+  justify-items: center;
   flex-wrap: wrap;
   color: rgb(var(--text-muted));
-  
+  margin-top: scale.$base; // Align with non-detail pages e.g. page-header
+
   h1 {
     display: flex;
     flex-direction: row;
@@ -12,13 +19,14 @@
     flex-direction: row;
     align-items: center;
     @include Typography.Interface(M);
+    margin-bottom: 0; // Override h1 margin
 
     .badge {
       margin-left: scale.$sm-3;
     }
   }
 
-  .icon-tile {
+  .hds-icon-tile {
     margin-right: scale.$base;
   }
 

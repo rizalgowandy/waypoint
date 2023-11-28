@@ -1,8 +1,14 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package variables
 
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -25,37 +31,39 @@ import (
 
 	"github.com/hashicorp/waypoint/internal/appconfig"
 	"github.com/hashicorp/waypoint/internal/config/dynamic"
+	"github.com/hashicorp/waypoint/internal/config/variables/formatter"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
 )
 
 const (
 	// Prefix for collecting variable values from environment variables
 	varEnvPrefix = "WP_VAR_"
-
-	// Variable value sources
-	// listed in descending precedence order for ease of reference
-	sourceCLI     = "cli"
-	sourceFile    = "file"
-	sourceEnv     = "env"
-	sourceVCS     = "vcs"
-	sourceServer  = "server"
-	sourceDynamic = "dynamic"
-	sourceDefault = "default"
 )
 
 var (
 	// sourceMap maps a variable pb source type to its string representation
 	fromSource = map[reflect.Type]string{
-		reflect.TypeOf((*pb.Variable_Cli)(nil)):     sourceCLI,
-		reflect.TypeOf((*pb.Variable_File_)(nil)):   sourceFile,
-		reflect.TypeOf((*pb.Variable_Env)(nil)):     sourceEnv,
-		reflect.TypeOf((*pb.Variable_Vcs)(nil)):     sourceVCS,
-		reflect.TypeOf((*pb.Variable_Server)(nil)):  sourceServer,
-		reflect.TypeOf((*pb.Variable_Dynamic)(nil)): sourceDynamic,
+		reflect.TypeOf((*pb.Variable_Cli)(nil)):     formatter.SourceCLI,
+		reflect.TypeOf((*pb.Variable_File_)(nil)):   formatter.SourceFile,
+		reflect.TypeOf((*pb.Variable_Env)(nil)):     formatter.SourceEnv,
+		reflect.TypeOf((*pb.Variable_Vcs)(nil)):     formatter.SourceVCS,
+		reflect.TypeOf((*pb.Variable_Server)(nil)):  formatter.SourceServer,
+		reflect.TypeOf((*pb.Variable_Dynamic)(nil)): formatter.SourceDynamic,
+	}
+
+	fromSourceToFV = map[string]pb.Variable_FinalValue_Source{
+		formatter.SourceCLI:     pb.Variable_FinalValue_CLI,
+		formatter.SourceFile:    pb.Variable_FinalValue_FILE,
+		formatter.SourceEnv:     pb.Variable_FinalValue_ENV,
+		formatter.SourceVCS:     pb.Variable_FinalValue_VCS,
+		formatter.SourceServer:  pb.Variable_FinalValue_SERVER,
+		formatter.SourceDynamic: pb.Variable_FinalValue_DYNAMIC,
+		formatter.SourceDefault: pb.Variable_FinalValue_DEFAULT,
+		formatter.SourceUnknown: pb.Variable_FinalValue_UNKNOWN,
 	}
 
 	// The attributes we expect to see in variable blocks
-	// Future expansion here could include `sensitive`, `validations`, etc
+	// Future expansion here could include `validations`, etc
 	variableBlockSchema = &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{
@@ -69,6 +77,9 @@ var (
 			},
 			{
 				Name: "env",
+			},
+			{
+				Name: "sensitive",
 			},
 		},
 	}
@@ -93,6 +104,10 @@ type Variable struct {
 	// declaration, the type of the default variable will be used.
 	Type cty.Type
 
+	// Variables with this set will be hashed as SHA256 values for
+	// the purposes of output and logging
+	Sensitive bool
+
 	// Description of the variable
 	Description string
 
@@ -111,6 +126,7 @@ type HclVariable struct {
 	Type        hcl.Expression `hcl:"type,optional"`
 	Description string         `hcl:"description,optional"`
 	Env         []string       `hcl:"env,optional"`
+	Sensitive   bool           `hcl:"sensitive,optional"`
 }
 
 // Values are used to store values collected from various sources.
@@ -118,7 +134,7 @@ type HclVariable struct {
 // create the final map of cty.Values for config hcl context evaluation.
 type Values map[string]*Value
 
-// Value contain the value of the variable along with associated metada,
+// Value contain the value of the variable along with associated metadata,
 // including the source it was set from: cli, file, env, vcs, server/ui
 type Value struct {
 	Value  cty.Value
@@ -191,7 +207,9 @@ func decodeVariableBlock(
 	}
 
 	if attr, ok := content.Attributes["type"]; ok {
-		t, moreDiags := typeexpr.Type(attr.Expr)
+		// TypeConstraint allows "any", and it's OK if users opt out of
+		// waypoint type checking here.
+		t, moreDiags := typeexpr.TypeConstraint(attr.Expr)
 		diags = append(diags, moreDiags...)
 		if moreDiags.HasErrors() {
 			return nil, diags
@@ -207,6 +225,11 @@ func decodeVariableBlock(
 		}
 	}
 
+	if attr, exists := content.Attributes["sensitive"]; exists {
+		valDiags := gohcl.DecodeExpression(attr.Expr, nil, &v.Sensitive)
+		diags = append(diags, valDiags...)
+	}
+
 	if attr, exists := content.Attributes["default"]; exists {
 		defaultCtx := ctx.NewChild()
 		defaultCtx.Functions = dynamic.Register(map[string]function.Function{})
@@ -220,18 +243,24 @@ func decodeVariableBlock(
 		// Depending on the value type, we behave differently.
 		switch val.Type() {
 		case dynamic.Type:
-			// For dynamic types we don't do conversion because we don't yet
-			// have the value. For now we require v.Type to be string so that
-			// the user isn't surprised by anything. Users can use explicit
-			// type conversion such as `tonumber`.
-			if v.Type != cty.String {
+			// Dynamic types can either be strings, or values that can be
+			// represented as json (i.e. objects and maps). The only allowed
+			// primitive type is string, and users can use explicit
+			// type conversion such as `tonumber` to achieve other primitive types.
+
+			// This is intended to help users catch invalid types early. If
+			// the type they specified doesn't match the actual type at runtime,
+			// they'll get another error and that's OK.
+			switch v.Type {
+			case cty.Number, cty.Bool:
 				diags = append(diags, &hcl.Diagnostic{
 					Severity: hcl.DiagError,
 					Summary:  fmt.Sprintf("type for variable %q must be string for dynamic values", name),
 					Detail: "When using dynamically sourced configuration values, " +
-						"the variable type must be string. You may use explicit " +
-						"type conversion functions such as `tonumber` when using " +
-						"the variable.",
+						"can either be strings, or complex types. If you're unsure of " +
+						"which, consult your configsourcer plugin documentation. If you want " +
+						"to represent a string as another kind of value, use type " +
+						"conversion functions such as `tonumber` when using the variable.",
 					Subject: attr.Expr.Range().Ptr(),
 				})
 				val = cty.DynamicVal
@@ -258,7 +287,7 @@ func decodeVariableBlock(
 		}
 
 		v.Default = &Value{
-			Source: sourceDefault,
+			Source: formatter.SourceDefault,
 			Value:  val,
 		}
 
@@ -315,7 +344,7 @@ func LoadVariableValues(vars map[string]string, files []string) ([]*pb.Variable,
 	// process -var-file args ("file" source)
 	for _, file := range files {
 		if file != "" {
-			pbv, diags := parseFileValues(file, sourceFile)
+			pbv, diags := parseFileValues(file, formatter.SourceFile)
 			if diags.HasErrors() {
 				return nil, diags
 			}
@@ -404,6 +433,7 @@ func LoadDynamicDefaults(
 	ctx context.Context,
 	log hclog.Logger,
 	pbvars []*pb.Variable,
+	cfgSrcs []*pb.ConfigSource,
 	vars map[string]*Variable,
 	dynamicOpts ...appconfig.Option,
 ) ([]*pb.Variable, hcl.Diagnostics) {
@@ -422,8 +452,11 @@ func LoadDynamicDefaults(
 
 	// If we have no dynamic vars, we do nothing.
 	if len(dynamicVars) == 0 {
+		log.Debug("no dynamic vars")
 		return nil, diags
 	}
+
+	log.Debug("dynamic variables discovered", "total", len(dynamicVars))
 
 	// Go through our variable values and delete any dynamic vars we have
 	// values for already; we do not need to fetch those.
@@ -433,6 +466,7 @@ func LoadDynamicDefaults(
 
 	// If we have no dynamic vars we need values for, also do nothing.
 	if len(dynamicVars) == 0 {
+		log.Debug("no dynamic vars needed values")
 		return nil, diags
 	}
 
@@ -472,6 +506,9 @@ func LoadDynamicDefaults(
 		})
 	}
 
+	// Update and send any config source overrides for dynamic vars.
+	w.UpdateSources(ctx, cfgSrcs)
+
 	// Send our variables. Purposely ignore the error return value because
 	// it can only ever be a context cancellation which we pick up in the
 	// select later.
@@ -497,14 +534,69 @@ func LoadDynamicDefaults(
 
 		case config := <-ch:
 			var result []*pb.Variable
+
 			for _, f := range config.Files {
-				result = append(result, &pb.Variable{
-					Name: f.Path,
-					Value: &pb.Variable_Str{
-						Str: string(f.Data),
-					},
-					Source: &pb.Variable_Dynamic{},
-				})
+
+				if matchingVar, ok := vars[f.Path]; ok {
+					if !matchingVar.Type.Equals(cty.String) {
+
+						// This is some hacking. The user put something other than
+						// `type = string` as the type for this variable.
+						// The plugin has done one of three things:
+						//
+						// 1: Returned json typed data (e.g. plugin.proto ConfigSource -> Value -> Value -> result -> json)
+						//    This is the happy path.
+						//    JSON is valid HCL, so we can run it up as an hcl variable,
+						//    it'll get properly marshalled and type checked, and can be
+						//    used elsewhere in the waypoint hcl.
+						// 2: The plugin returned a string value, but the string is
+						//    actually json. This will also work, as long as the json
+						//    and user-specified types match.
+						// 3: The plugin returned a non-json string. In this case, we
+						//    emit a runtime error.
+
+						// Someday, it would be nice to KNOW here if the plugin returned structured
+						// data or not. That's work though, and option 2 is a happy side effect
+						// of us not knowing, so it's OK for today.
+
+						// Make sure the plugin returned valid non-string data.
+						if err := json.Unmarshal(f.Data, &json.RawMessage{}); err != nil {
+							diags = append(diags, &hcl.Diagnostic{
+								Severity: hcl.DiagError,
+								Summary:  "Plugin output <> hcl type mismatch",
+								Detail: fmt.Sprintf(
+									"Variable %q is declared as non-string type %q, \n"+
+										"but the configsourcer plugin did not return\n"+
+										"structured data that can be json-marshalled:\n%s",
+									matchingVar.Name,
+									matchingVar.Type.FriendlyNameForConstraint(),
+									err,
+								),
+								Subject: &hcl.Range{
+									Filename: "waypoint.hcl",
+								},
+							})
+							return nil, diags
+						}
+
+						result = append(result, &pb.Variable{
+							Name: f.Path,
+							Value: &pb.Variable_Hcl{
+								// json is valid hcl!
+								Hcl: string(f.Data),
+							},
+							Source: &pb.Variable_Dynamic{},
+						})
+					} else {
+						result = append(result, &pb.Variable{
+							Name: f.Path,
+							Value: &pb.Variable_Str{
+								Str: string(f.Data),
+							},
+							Source: &pb.Variable_Dynamic{},
+						})
+					}
+				}
 			}
 
 			return result, diags
@@ -525,7 +617,8 @@ func EvaluateVariables(
 	log hclog.Logger,
 	pbvars []*pb.Variable,
 	vs map[string]*Variable,
-) (Values, hcl.Diagnostics) {
+	salt string,
+) (Values, map[string]*pb.Variable_FinalValue, hcl.Diagnostics) {
 	var diags hcl.Diagnostics
 	iv := Values{}
 
@@ -560,7 +653,7 @@ func EvaluateVariables(
 		// set our source for error messaging
 		source := fromSource[reflect.TypeOf(pbv.Source)]
 		if source == "" {
-			source = "unknown"
+			source = formatter.SourceUnknown
 			log.Debug("No source found for value given for variable %q", pbv.Name)
 		}
 
@@ -596,13 +689,13 @@ func EvaluateVariables(
 				Detail:   "The variable type was not set as a string, number, bool, or hcl expression",
 				Subject:  &variable.Range,
 			})
-			return nil, diags
+			return nil, nil, diags
 		}
 
 		val, valDiags := expr.Value(nil)
 		if valDiags.HasErrors() {
 			diags = append(diags, valDiags...)
-			return nil, diags
+			return nil, nil, diags
 		}
 
 		if variable.Type != cty.NilType {
@@ -615,14 +708,14 @@ func EvaluateVariables(
 			// map/list/etc.
 			// Now that we know the expected type, we'll check here for that
 			// and, if necessary, repeat the expression parsing for HCL syntax
-			if source == sourceCLI || source == sourceEnv {
+			if source == formatter.SourceCLI || source == formatter.SourceEnv {
 				if !variable.Type.IsPrimitiveType() {
 					fakeFilename := fmt.Sprintf("<value for var.%s from source %q>", pbv.Name, source)
 					expr, diags = hclsyntax.ParseExpression([]byte(val.AsString()), fakeFilename, hcl.Pos{Line: 1, Column: 1})
 					val, valDiags = expr.Value(nil)
 					if valDiags.HasErrors() {
 						diags = append(diags, valDiags...)
-						return nil, diags
+						return nil, nil, diags
 					}
 				}
 			}
@@ -666,8 +759,107 @@ func EvaluateVariables(
 			})
 		}
 	}
+	// Error here if we have them from parsing
+	if diags.HasErrors() {
+		return nil, nil, diags
+	}
 
-	return iv, diags
+	jobVals, diags := getJobValues(vs, iv, salt)
+	if diags.HasErrors() {
+		return nil, nil, diags
+	}
+	return iv, jobVals, diags
+}
+
+// getJobValues combines the Variable and Value into a VariableRef,
+// hashing any 'sensitive' values as SHA256 values with the given salt.
+func getJobValues(vs map[string]*Variable, values Values, salt string) (map[string]*pb.Variable_FinalValue, hcl.Diagnostics) {
+	varRefs := make(map[string]*pb.Variable_FinalValue, len(values))
+	var diags hcl.Diagnostics
+
+	for v, value := range values {
+		varRefs[v] = &pb.Variable_FinalValue{}
+
+		// check for sensitive, and salt if so
+		if vs[v].Sensitive {
+			var sval string
+			switch value.Value.Type() {
+			case cty.String:
+				sval = value.Value.AsString()
+			case cty.Bool:
+				b := value.Value.True()
+				sval = fmt.Sprintf("%t", b)
+			case cty.Number:
+				var num int64
+				err := gocty.FromCtyValue(value.Value, &num)
+				// We really shouldn't hit this since we just created the value
+				// but for posterity I guess
+				if err != nil {
+					diags = append(diags, &hcl.Diagnostic{
+						Severity: hcl.DiagError,
+						Summary:  "Invalid number",
+						Detail:   err.Error(),
+					})
+					return nil, diags
+				}
+				sval = fmt.Sprintf("%d", num)
+			default:
+				// handle any HCL complex types
+				bv := hclwrite.TokensForValue(value.Value).Bytes()
+				buf := bytes.NewBuffer(bv)
+				sval = buf.String()
+			}
+			// salt shaker
+			saltedVal := salt + sval
+			h := sha256.Sum256([]byte(saltedVal))
+			sval = hex.EncodeToString(h[:])
+
+			varRefs[v].Value = &pb.Variable_FinalValue_Sensitive{Sensitive: sval}
+		} else {
+			switch value.Value.Type() {
+			case cty.String:
+				var str string
+				err := gocty.FromCtyValue(value.Value, &str)
+				if err != nil {
+					diags = append(diags, &hcl.Diagnostic{
+						Severity: hcl.DiagError,
+						Summary:  "Invalid string",
+						Detail:   err.Error(),
+					})
+					return nil, diags
+				}
+				varRefs[v].Value = &pb.Variable_FinalValue_Str{Str: str}
+			case cty.Bool:
+				varRefs[v].Value = &pb.Variable_FinalValue_Bool{Bool: value.Value.True()}
+			case cty.Number:
+				var num int64
+				err := gocty.FromCtyValue(value.Value, &num)
+				// We really shouldn't hit this since we just created the value
+				// but for posterity I guess
+				if err != nil {
+					diags = append(diags, &hcl.Diagnostic{
+						Severity: hcl.DiagError,
+						Summary:  "Invalid number",
+						Detail:   err.Error(),
+					})
+					return nil, diags
+				}
+				varRefs[v].Value = &pb.Variable_FinalValue_Num{Num: num}
+			default:
+				// if it's not a primitive/simple type, we set as bytes here to be later
+				// parsed as an hcl expression; any errors at evaluating the hcl type will
+				// be handled at that time
+				bv := hclwrite.TokensForValue(value.Value).Bytes()
+				buf := bytes.NewBuffer(bv)
+				varRefs[v].Value = &pb.Variable_FinalValue_Hcl{Hcl: buf.String()}
+			}
+		}
+
+		source := fromSourceToFV[value.Source]
+		varRefs[v].Source = source
+	}
+
+	return varRefs, nil
 }
 
 // LoadAutoFiles loads any *.auto.wpvars(.json) files in the source repo
@@ -689,7 +881,7 @@ func LoadAutoFiles(wd string) ([]*pb.Variable, hcl.Diagnostics) {
 
 	for _, f := range varFiles {
 		if f != "" {
-			pbv, diags = parseFileValues(f, sourceVCS)
+			pbv, diags = parseFileValues(f, formatter.SourceVCS)
 			if diags.HasErrors() {
 				return nil, diags
 			}
@@ -749,9 +941,9 @@ func parseFileValues(filename string, source string) ([]*pb.Variable, hcl.Diagno
 
 		// Set source
 		switch source {
-		case sourceFile:
+		case formatter.SourceFile:
 			v.Source = &pb.Variable_File_{}
-		case sourceVCS:
+		case formatter.SourceVCS:
 			v.Source = &pb.Variable_Vcs{}
 		}
 		pbv = append(pbv, v)

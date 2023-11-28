@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import ApiService from 'waypoint/services/api';
 import { Breadcrumb } from 'waypoint/services/breadcrumbs';
 import { Model as AppRouteModel } from '../app';
@@ -12,12 +17,10 @@ export default class Exec extends Route {
     return [
       {
         label: model.application.application ?? 'unknown',
-        icon: 'git-repo',
         route: 'workspace.projects.project.app',
       },
       {
         label: 'Exec',
-        icon: 'terminal-screen',
         route: 'workspace.projects.project.app.exec',
       },
     ];

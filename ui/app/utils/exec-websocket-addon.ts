@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import * as AnsiColors from 'ansi-colors';
 
 import { ExecStreamRequest, ExecStreamResponse } from 'waypoint-pb';

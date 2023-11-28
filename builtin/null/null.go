@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 // Package null contains components that do [almost] nothing, primarily aimed
 // to ease experimentation and testing with Waypoint. For example, the null
 // config sourcer can be used to learn about dynamic configuration without
@@ -12,5 +15,5 @@ import (
 
 // Options are the SDK options to use for instantiation for this plugin.
 var Options = []sdk.Option{
-	sdk.WithComponents(&ConfigSourcer{}),
+	sdk.WithComponents(&ConfigSourcer{}, &Builder{}, &Platform{}, &Releaser{}),
 }

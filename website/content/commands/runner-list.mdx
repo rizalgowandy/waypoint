@@ -5,6 +5,12 @@ sidebar_title: 'runner list'
 description: 'List registered runners'
 ---
 
+<Warning>
+
+This content is part of the legacy version of Waypoint that is no longer actively maintained. For additional information on the new vision of Waypoint, check out [this blog post](https://www.hashicorp.com/blog/a-new-vision-for-hcp-waypoint) and the [HCP Waypoint documentation](/hcp/docs/waypoint).
+
+</Warning>
+
 # Waypoint Runner list
 
 Command: `waypoint runner list`
@@ -39,7 +45,7 @@ at any time, even after it is already adopted.
 
 #### Global Options
 
-- `-plain` - Plain output: no colors, no animation.
+- `-plain` - Plain output: no colors, no animation. The default is false.
 - `-app=<string>` (`-a`) - App to target. Certain commands require a single app target for Waypoint configurations with multiple apps. If you have a single app, then this can be ignored.
 - `-project=<string>` (`-p`) - Project to target.
 - `-workspace=<string>` (`-w`) - Workspace to operate in.
@@ -56,7 +62,7 @@ at any time, even after it is already adopted.
 
 #### Command Options
 
-- `-pending` - List only runners pending adoption.
-- `-json` - Output runner configuration list information as JSON. This includes more fields since this is the complete API structure.
+- `-pending` - List only runners pending adoption. The default is false.
+- `-json` - Output runner configuration list information as JSON. This includes more fields since this is the complete API structure. The default is false.
 
 @include "commands/runner-list_more.mdx"

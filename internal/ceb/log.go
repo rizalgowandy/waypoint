@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ceb
 
 import (
@@ -8,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang/protobuf/ptypes"
 	"github.com/hashicorp/go-hclog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/hashicorp/waypoint/internal/pkg/gatedwriter"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
@@ -232,7 +235,7 @@ func (ceb *CEB) logReader(
 		}
 		entry := &pb.LogBatch_Entry{
 			Source:    src,
-			Timestamp: ptypes.TimestampNow(),
+			Timestamp: timestamppb.Now(),
 			Line:      line,
 		}
 

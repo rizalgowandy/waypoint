@@ -6,6 +6,12 @@ description: |-
   with GitLab CI/CD
 ---
 
+<Warning>
+
+This content is part of the legacy version of Waypoint that is no longer actively maintained. For additional information on the new vision of Waypoint, check out [this blog post](https://www.hashicorp.com/blog/a-new-vision-for-hcp-waypoint) and the [HCP Waypoint documentation](/hcp/docs/waypoint).
+
+</Warning>
+
 # Integrating Waypoint with GitLab CI/CD
 
 Using Waypoint to deploy an application from within GitLab CI/CD is similar to how you might deploy an application from your own workspace.
@@ -19,7 +25,7 @@ The example demonstrates the main steps:
    using a Docker custom image executor with your other deploy
    dependencies, you could utilize the public Docker image in a multi-stage build.
 3. **Run `waypoint init`.** This depends on the environment variables listed
-   below and documented in the [Automating Execution](/docs/automating-execution#init)
+   below and documented in the [Automating Execution](/waypoint/docs/automating-execution#init)
    overview.
 4. **Run the build, deploy, and release.** In this case, instead of using `waypoint up`,
    it breaks out each stage as a separate command to be easier to read and

@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
@@ -5,11 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/dustin/go-humanize"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/posener/complete"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -21,7 +24,6 @@ import (
 	"github.com/hashicorp/waypoint/internal/pkg/flag"
 	"github.com/hashicorp/waypoint/internal/version"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
-	serversort "github.com/hashicorp/waypoint/pkg/server/sort"
 )
 
 type DeploymentListCommand struct {
@@ -35,12 +37,16 @@ type DeploymentListCommand struct {
 	filterFlags      filterFlags
 }
 
-func shortImg(img string) string {
-	if strings.HasPrefix(img, "sha256:") {
-		return img[7:14]
+func shortImg(img string) (string, error) {
+	if len(img) < 7 {
+		return "", fmt.Errorf("string not long enough to obtain short img: %s", img)
 	}
 
-	return img[:7]
+	if strings.HasPrefix(img, "sha256:") {
+		return img[7:14], nil
+	}
+
+	return img[:7], nil
 }
 
 // Add either language: or languages: based on how many values are specified
@@ -145,7 +151,6 @@ func (c *DeploymentListCommand) Run(args []string) int {
 			)
 			return nil
 		}
-		sort.Sort(serversort.DeploymentBundleCompleteDesc(resp.Deployments))
 
 		if c.flagJson {
 			return c.displayJson(resp.Deployments)
@@ -196,11 +201,12 @@ func (c *DeploymentListCommand) Run(args []string) int {
 
 			// Parse our times
 			var startTime, completeTime string
-			if t, err := ptypes.Timestamp(b.Status.StartTime); err == nil {
-				startTime = humanize.Time(t)
+			if b.Status.StartTime != nil {
+				startTime = humanize.Time(b.Status.StartTime.AsTime())
 			}
-			if t, err := ptypes.Timestamp(b.Status.CompleteTime); err == nil {
-				completeTime = humanize.Time(t)
+
+			if b.Status.CompleteTime != nil {
+				completeTime = humanize.Time(b.Status.CompleteTime.AsTime())
 			}
 
 			// Add status report information if we have any
@@ -220,7 +226,8 @@ func (c *DeploymentListCommand) Run(args []string) int {
 					statusReportComplete = "?"
 				}
 
-				if t, err := ptypes.Timestamp(statusReport.GeneratedTime); err == nil {
+				if statusReport.GeneratedTime != nil {
+					t := statusReport.GeneratedTime.AsTime()
 					statusReportComplete = fmt.Sprintf("%s - %s", statusReportComplete, humanize.Time(t))
 				}
 			}
@@ -244,10 +251,26 @@ func (c *DeploymentListCommand) Run(args []string) int {
 				}
 
 				if img, ok := build.Labels["common/image-id"]; ok {
-					img = shortImg(img)
+					img, err = shortImg(img)
+					if err != nil {
+						app.UI.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
+						return err
+					}
 
 					details = append(details, "image:"+img)
 				}
+			}
+
+			j, err := c.project.Client().GetJob(c.Ctx, &pb.GetJobRequest{
+				JobId: deployBundle.Deployment.JobId,
+			})
+			if err != nil {
+				app.UI.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
+				return err
+			}
+			if j.Pipeline != nil {
+				pipeline := "name: " + j.Pipeline.PipelineName + ", run: " + strconv.FormatUint(j.Pipeline.RunSequence, 10) + ", step: " + j.Pipeline.Step
+				details = append(details, pipeline)
 			}
 
 			if deployBundle.Artifact != nil {

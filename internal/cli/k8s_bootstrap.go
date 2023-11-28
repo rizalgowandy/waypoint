@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
@@ -6,10 +9,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/posener/complete"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	empty "google.golang.org/protobuf/types/known/emptypb"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -18,8 +21,8 @@ import (
 	"github.com/hashicorp/waypoint/internal/clierrors"
 	"github.com/hashicorp/waypoint/internal/pkg/flag"
 	"github.com/hashicorp/waypoint/internal/pkg/k8sauth"
-	"github.com/hashicorp/waypoint/internal/serverclient"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
+	"github.com/hashicorp/waypoint/pkg/serverclient"
 	"github.com/hashicorp/waypoint/pkg/serverconfig"
 )
 
@@ -254,6 +257,14 @@ func (c *K8SBootstrapCommand) Run(args []string) int {
 			Default:      true,
 		},
 	})
+	if err != nil {
+		c.ui.Output(
+			"Error storing runner config on server: %s",
+			clierrors.Humanize(err),
+			terminal.WithErrorStyle(),
+		)
+		return 1
+	}
 
 	log.Info("bootstrap complete")
 	return 0

@@ -20,17 +20,35 @@ task {
 
 ### Required Parameters
 
-This plugin has no required parameters.
+These parameters are used in the [`use` stanza](/waypoint/docs/waypoint-hcl/use) for this plugin.
+
+#### security_context
+
+- Type: **k8s.PodSecurityContext**
 
 ### Optional Parameters
 
-These parameters are used in the [`use` stanza](/docs/waypoint-hcl/use) for this plugin.
+These parameters are used in the [`use` stanza](/waypoint/docs/waypoint-hcl/use) for this plugin.
 
 #### context
 
 The kubectl context to use, as defined in the kubeconfig file.
 
 - Type: **string**
+- **Optional**
+
+#### cpu
+
+Cpu resource request to be added to the task container.
+
+- Type: **k8s.ResourceConfig**
+- **Optional**
+
+#### ephemeral_storage
+
+Ephemeral_storage resource request to be added to the task container.
+
+- Type: **k8s.ResourceConfig**
 - **Optional**
 
 #### image_pull_policy
@@ -57,6 +75,14 @@ By default uses from current user's home directory.
 
 - Type: **string**
 - **Optional**
+- Environment Variable: **KUBECONFIG**
+
+#### memory
+
+Memory resource request to be added to the task container.
+
+- Type: **k8s.ResourceConfig**
+- **Optional**
 
 #### namespace
 
@@ -74,9 +100,17 @@ Service account is the name of the Kubernetes service account to add to the pod.
 - Type: **string**
 - **Optional**
 
+#### watchtask_startup_timeout_seconds
+
+This option configures how long the WatchTask should wait for a task pod to start-up before attempting to stream its logs. If the pod does not start up within the given timeout, WatchTask will exit.
+
+- Type: **int**
+- **Optional**
+- Default: 30
+
 ### Output Attributes
 
-Output attributes can be used in your `waypoint.hcl` as [variables](/docs/waypoint-hcl/variables) via [`artifact`](/docs/waypoint-hcl/variables/artifact) or [`deploy`](/docs/waypoint-hcl/variables/deploy).
+Output attributes can be used in your `waypoint.hcl` as [variables](/waypoint/docs/waypoint-hcl/variables) via [`artifact`](/waypoint/docs/waypoint-hcl/variables/artifact) or [`deploy`](/waypoint/docs/waypoint-hcl/variables/deploy).
 
 #### id
 

@@ -1,9 +1,15 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import Component from '@glimmer/component';
 import { inject as service } from '@ember/service';
 import { action } from '@ember/object';
 import { tracked } from '@glimmer/tracking';
 import ApiService from 'waypoint/services/api';
 import FlashMessagesService from 'waypoint/services/pds-flash-messages';
+import type ProjectService from 'waypoint/services/project';
 import {
   Ref,
   ExpediteStatusReportRequest,
@@ -21,6 +27,7 @@ interface Args {
 export default class StatusReportMetaTable extends Component<Args> {
   @service api!: ApiService;
   @service('pdsFlashMessages') flashMessages!: FlashMessagesService;
+  @service declare project: ProjectService;
   @tracked isRefreshRunning = false;
 
   get artifactType(): Args['artifactType'] {
@@ -33,6 +40,11 @@ export default class StatusReportMetaTable extends Component<Args> {
 
   get statusReport(): Args['model']['statusReport'] {
     return this.model.statusReport;
+  }
+
+  get projectHasDataSource(): boolean {
+    let dataSource = this.project.current?.dataSource;
+    return Boolean(dataSource && !dataSource.local);
   }
 
   @action

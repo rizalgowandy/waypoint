@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 // Package freeport provides a helper for allocating free ports across multiple
 // processes on the same machine.
 package freeport

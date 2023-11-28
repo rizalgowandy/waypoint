@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ami
 
 import (
@@ -46,6 +49,7 @@ func (b *Builder) Documentation() (*docs.Documentation, error) {
 
 	doc.Description("Search for and return an existing AMI")
 
+	doc.Input("component.Source")
 	doc.Output("ami.Image")
 
 	doc.SetField(

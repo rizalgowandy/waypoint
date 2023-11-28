@@ -5,6 +5,12 @@ description: |-
   This page covers how to use Waypoint Triggers and their various use-cases.
 ---
 
+<Warning>
+
+This content is part of the legacy version of Waypoint that is no longer actively maintained. For additional information on the new vision of Waypoint, check out [this blog post](https://www.hashicorp.com/blog/a-new-vision-for-hcp-waypoint) and the [HCP Waypoint documentation](/hcp/docs/waypoint).
+
+</Warning>
+
 # About Waypoint Triggers
 
 Trigger URLs are pre-configured Waypoint lifecycle operations for execution
@@ -26,13 +32,13 @@ The Waypoint CLI comes with a subcommand that lets you configure and update
 Trigger URL configurations.
 
 Check out our CLI docs for the `waypoint trigger` command, such as
-[waypoint trigger create](/commands/trigger-create).
+[waypoint trigger create](/waypoint/commands/trigger-create).
 
 ## Pre-configuring a Trigger URL
 
 As an example, you can create a Trigger URL config that deploys the latest artifact
 to the production workspace. First, configure the Trigger to use the
-right project, application, and workspace. Then, specify which [lifecycle operation](/docs/lifecycle)
+right project, application, and workspace. Then, specify which [lifecycle operation](/waypoint/docs/lifecycle)
 you want the trigger to execute when run. You can also include a `description` or
 `tags` for extra information for the user.
 

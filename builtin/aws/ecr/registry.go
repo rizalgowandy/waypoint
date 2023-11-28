@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ecr
 
 import (
@@ -138,6 +141,11 @@ func (r *Registry) setupRepo(
 	data, err := base64.StdEncoding.DecodeString(uptoken)
 	if err != nil {
 		return nil, err
+	} else if len(data) < 5 {
+		// We trim the token string to remove the fist 4 characters. If a token
+		// is smaller than this, we would panic, so warn against it before it happens.
+		return nil, status.Error(
+			codes.FailedPrecondition, "authorization token length is invalid")
 	}
 
 	info := &ecrInfo{

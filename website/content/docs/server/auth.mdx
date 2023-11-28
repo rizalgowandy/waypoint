@@ -5,6 +5,12 @@ description: |-
   All connections to the Waypoint server via the CLI or UI require authentication. Waypoint supports authentication using an API token or via OpenID Connect (OIDC).
 ---
 
+<Warning>
+
+This content is part of the legacy version of Waypoint that is no longer actively maintained. For additional information on the new vision of Waypoint, check out [this blog post](https://www.hashicorp.com/blog/a-new-vision-for-hcp-waypoint) and the [HCP Waypoint documentation](/hcp/docs/waypoint).
+
+</Warning>
+
 # Server Authentication
 
 All connections to the Waypoint server via the CLI or UI require authentication.
@@ -14,7 +20,7 @@ Okta, GitLab, and more.
 
 If you're a new user that ran `waypoint install`, the auth token was automatically
 configured for your local CLI. As a next step, we recomend
-[setting up OIDC](/docs/server/auth/oidc).
+[setting up OIDC](/waypoint/docs/server/auth/oidc).
 
 ## Logging In
 
@@ -28,7 +34,7 @@ the onscreen instructions.
 <Tab heading="CLI">
 
 To log in using either a token or OIDC, use the
-[waypoint login](/commands/login) command. Specify the address to the
+[waypoint login](/waypoint/commands/login) command. Specify the address to the
 Waypoint server as the argument:
 
 ```shell-session
@@ -55,7 +61,7 @@ UI or `waypoint login`. This will create a new account if they're allowed to
 authenticate.
 
 For tokens, use the
-[waypoint user invite](/commands/user-invite) CLI command with
+[waypoint user invite](/waypoint/commands/user-invite) CLI command with
 the `-username` flag. This will create an invite token that can be exchanged
 for a token for a specific user.
 

@@ -5,6 +5,12 @@ sidebar_title: 'user token'
 description: 'Request a new token to access the server'
 ---
 
+<Warning>
+
+This content is part of the legacy version of Waypoint that is no longer actively maintained. For additional information on the new vision of Waypoint, check out [this blog post](https://www.hashicorp.com/blog/a-new-vision-for-hcp-waypoint) and the [HCP Waypoint documentation](/hcp/docs/waypoint).
+
+</Warning>
+
 # Waypoint User token
 
 Command: `waypoint user token`
@@ -34,15 +40,15 @@ the "waypoint user" set of commands. Everything that was possible with
 
 #### Global Options
 
-- `-plain` - Plain output: no colors, no animation.
+- `-plain` - Plain output: no colors, no animation. The default is false.
 - `-app=<string>` (`-a`) - App to target. Certain commands require a single app target for Waypoint configurations with multiple apps. If you have a single app, then this can be ignored.
 - `-project=<string>` (`-p`) - Project to target.
 - `-workspace=<string>` (`-w`) - Workspace to operate in.
 
 #### Command Options
 
-- `-expires-in=<duration>` - The duration until the token expires. i.e. '5m'.
+- `-expires-in=<duration>` - The duration until the token expires. i.e. '5m'. The default is 720h0m0s.
 - `-username=<string>` - Username to generate the login token for. This defaults to the currently logged in user.
-- `-trigger-url-token` - Will generate a trigger auth token. This token can only be used for trigger URL actions.
+- `-trigger-url-token` - Will generate a trigger auth token. This token can only be used for trigger URL actions. The default is false.
 
 @include "commands/user-token_more.mdx"

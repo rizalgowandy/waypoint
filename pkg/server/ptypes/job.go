@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ptypes
 
 import (
@@ -53,15 +56,32 @@ func TestJobNew(t testing.T, src *pb.Job) *pb.Job {
 // TODO: This still fails if the job passed in to be validated is nil
 func ValidateJob(job *pb.Job) error {
 	return validationext.Error(validation.ValidateStruct(job,
+		ValidateJobRules(job)...,
+	))
+}
+
+// ValidateJobRules
+func ValidateJobRules(job *pb.Job) []*validation.FieldRules {
+	return []*validation.FieldRules{
 		validation.Field(&job.Id, validation.By(isEmpty)),
 		validation.Field(&job.Application, validation.Required),
 		validation.Field(&job.Workspace, validation.Required),
+		validationext.StructField(&job.Workspace, func() []*validation.FieldRules {
+			return ValidateJobWorkspaceRules(job.Workspace)
+		}),
 		validation.Field(&job.TargetRunner, validation.Required),
 		validation.Field(&job.Operation, validation.Required),
 		validationext.StructField(&job.DataSource, func() []*validation.FieldRules {
 			return ValidateJobDataSourceRules(job.DataSource)
 		}),
-	))
+	}
+}
+
+// ValidateJobWorkspaceRules
+func ValidateJobWorkspaceRules(v *pb.Ref_Workspace) []*validation.FieldRules {
+	return []*validation.FieldRules{
+		validation.Field(&v.Workspace, validation.Required),
+	}
 }
 
 // ValidateJobDataSourceRules
@@ -101,6 +121,15 @@ func validateJobDataSourceGitRules(v *pb.Job_DataSource_Git) []*validation.Field
 				}
 			}),
 	}
+}
+
+// ValidateListJobsRequest
+func ValidateListJobsRequest(v *pb.ListJobsRequest) error {
+	return validationext.Error(validation.ValidateStruct(v,
+		validationext.StructField(&v.Pagination, func() []*validation.FieldRules {
+			return ValidatePaginationRequestRules(v.Pagination)
+		}),
+	))
 }
 
 func isEmpty(v interface{}) error {

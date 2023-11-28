@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ceb
 
 import (
@@ -18,10 +21,10 @@ import (
 
 	"github.com/hashicorp/waypoint-plugin-sdk/component"
 	"github.com/hashicorp/waypoint/internal/plugin"
-	"github.com/hashicorp/waypoint/internal/server/singleprocess"
 	"github.com/hashicorp/waypoint/pkg/server"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
 	serverptypes "github.com/hashicorp/waypoint/pkg/server/ptypes"
+	"github.com/hashicorp/waypoint/pkg/server/singleprocess"
 
 	"github.com/stretchr/testify/require"
 )

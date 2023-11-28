@@ -1,10 +1,13 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package client
 
 import (
 	"context"
 
-	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/hashicorp/go-hclog"
+	empty "google.golang.org/protobuf/types/known/emptypb"
 
 	configpkg "github.com/hashicorp/waypoint/internal/config"
 	"github.com/hashicorp/waypoint/internal/runner"
@@ -71,10 +74,10 @@ func remoteOpPreferred(ctx context.Context, client pb.WaypointClient, project *p
 
 	var hasRemoteDataSource bool
 	switch project.DataSource.GetSource().(type) {
-	case *pb.Job_DataSource_Git:
-		hasRemoteDataSource = true
-	default:
+	case *pb.Job_DataSource_Local:
 		hasRemoteDataSource = false
+	default:
+		hasRemoteDataSource = true
 	}
 
 	if !hasRemoteDataSource {

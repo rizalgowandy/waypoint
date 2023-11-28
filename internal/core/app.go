@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package core
 
 import (
@@ -209,10 +212,9 @@ func (a *App) startPlugin(
 //
 // This always provides some common values for injection:
 //
-//   * *component.Source
-//   * *datadir.Project
-//   * history.Client
-//
+//   - *component.Source
+//   - *datadir.Project
+//   - history.Client
 func (a *App) callDynamicFunc(
 	ctx context.Context,
 	log hclog.Logger,

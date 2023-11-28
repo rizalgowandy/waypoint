@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package k8s
 
 import (
@@ -8,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/go-hclog"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -17,8 +21,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
-
-	"github.com/hashicorp/go-hclog"
 
 	"github.com/hashicorp/waypoint-plugin-sdk/component"
 	"github.com/hashicorp/waypoint-plugin-sdk/docs"
@@ -338,6 +340,7 @@ func (r *Releaser) resourceServiceCreate(
 
 func (r *Releaser) resourceServiceDestroy(
 	ctx context.Context,
+	log hclog.Logger,
 	state *Resource_Service,
 	sg terminal.StepGroup,
 	csinfo *clientsetInfo,
@@ -358,7 +361,10 @@ func (r *Releaser) resourceServiceDestroy(
 
 	step = sg.Add("Deleting service...")
 	if err := serviceclient.Delete(ctx, state.Name, metav1.DeleteOptions{}); err != nil {
-		return err
+		if !errors.IsNotFound(err) {
+			return err
+		}
+		log.Debug("no service found, continuing")
 	}
 
 	step.Update("Service deleted")
@@ -972,6 +978,8 @@ func (r *Releaser) Documentation() (*docs.Documentation, error) {
 	}
 
 	doc.Description("Manipulates the Kubernetes Service activate Deployments")
+	doc.Input("k8s.Deployment")
+	doc.Output("k8s.Release")
 
 	doc.SetField(
 		"annotations",

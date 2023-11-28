@@ -1,16 +1,20 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package core
 
 import (
 	"context"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes/any"
 	"github.com/hashicorp/go-argmapper"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/opaqueany"
 	"github.com/mitchellh/mapstructure"
+	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/hashicorp/waypoint-plugin-sdk/component"
 	"github.com/hashicorp/waypoint/internal/config"
@@ -83,7 +87,12 @@ func (a *App) Release(ctx context.Context, target *pb.Deployment) (
 		release = result.(component.Release)
 	}
 
-	return releasepb.(*pb.Release), release, nil
+	releaseResult, ok := releasepb.(*pb.Release)
+	if !ok {
+		return nil, nil, status.Error(codes.Internal, "app_release failed to convert the operation message into a Release proto")
+	}
+
+	return releaseResult, release, nil
 }
 
 // createReleaser creates the releaser component instance by trying to
@@ -205,7 +214,7 @@ func (op *releaseOperation) Upsert(
 		Release: msg.(*pb.Release),
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed upserting release operation")
 	}
 
 	return resp.Release, nil
@@ -262,7 +271,7 @@ func (op *releaseOperation) StatusPtr(msg proto.Message) **pb.Status {
 	return &(msg.(*pb.Release).Status)
 }
 
-func (op *releaseOperation) ValuePtr(msg proto.Message) (**any.Any, *string) {
+func (op *releaseOperation) ValuePtr(msg proto.Message) (**opaqueany.Any, *string) {
 	return &(msg.(*pb.Release).Release), &(msg.(*pb.Release).ReleaseJson)
 }
 

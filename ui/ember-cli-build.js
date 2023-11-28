@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 'use strict';
 
 const EmberApp = require('ember-cli/lib/broccoli/ember-app');
@@ -31,6 +36,13 @@ module.exports = function (defaults) {
           yandex: false,
         },
       },
+    },
+    'ember-simple-auth': {
+      useSessionSetupMethod: true,
+    },
+    sassOptions: {
+      precision: 4,
+      includePaths: ['./node_modules/@hashicorp/design-system-tokens/dist/products/css'],
     },
     svgJar: {
       sourceDirs: ['node_modules/@hashicorp/structure-icons/dist', 'public/images'],

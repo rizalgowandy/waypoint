@@ -19,33 +19,11 @@ task {
 
 ### Required Parameters
 
-These parameters are used in the [`use` stanza](/docs/waypoint-hcl/use) for this plugin.
-
-#### client_config
-
-- Type: **docker.ClientConfig**
-
-#### resources (category)
-
-The resources that the tasks should use.
-
-##### resources.cpu
-
-The cpu shares that the tasks should use.
-
-- Type: **int64**
-- **Optional**
-
-##### resources.memory
-
-The amount of memory to use. Defined as '512MB', '44kB', etc.
-
-- Type: **string**
-- **Optional**
+This plugin has no required parameters.
 
 ### Optional Parameters
 
-These parameters are used in the [`use` stanza](/docs/waypoint-hcl/use) for this plugin.
+These parameters are used in the [`use` stanza](/waypoint/docs/waypoint-hcl/use) for this plugin.
 
 #### binds
 
@@ -54,6 +32,11 @@ A 'source:destination' list of folders to mount onto the container from the host
 A list of folders to mount onto the container from the host. The expected format for each string entry in the list is `source:destination`. So for example: `binds: ["host_folder/scripts:/scripts"]`.
 
 - Type: **list of string**
+- **Optional**
+
+#### client_config
+
+- Type: **docker.ClientConfig**
 - **Optional**
 
 #### debug_containers
@@ -85,6 +68,26 @@ A list of networks to connect the container to. By default the container will al
 - **Optional**
 - Default: waypoint
 
+#### resources (category)
+
+The resources that the tasks should use.
+
+- **Optional**
+
+##### resources.cpu
+
+The cpu shares that the tasks should use.
+
+- Type: **int64**
+- **Optional**
+
+##### resources.memory
+
+The amount of memory to use. Defined as '512MB', '44kB', etc.
+
+- Type: **string**
+- **Optional**
+
 #### static_environment
 
 Environment variables to expose to the application.
@@ -96,7 +99,7 @@ These variables are used to control all of a container's modes, such as configur
 
 ### Output Attributes
 
-Output attributes can be used in your `waypoint.hcl` as [variables](/docs/waypoint-hcl/variables) via [`artifact`](/docs/waypoint-hcl/variables/artifact) or [`deploy`](/docs/waypoint-hcl/variables/deploy).
+Output attributes can be used in your `waypoint.hcl` as [variables](/waypoint/docs/waypoint-hcl/variables) via [`artifact`](/waypoint/docs/waypoint-hcl/variables/artifact) or [`deploy`](/waypoint/docs/waypoint-hcl/variables/deploy).
 
 #### id
 

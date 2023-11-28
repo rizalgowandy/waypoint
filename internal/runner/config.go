@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package runner
 
 import (
@@ -279,6 +282,7 @@ func (r *Runner) recvConfig(
 
 		// Wait for the next configuration
 		resp, err := client.Recv()
+
 		if err != nil {
 			// EOF means a graceful close, don't reconnect.
 			if err == io.EOF || clierrors.IsCanceled(err) {

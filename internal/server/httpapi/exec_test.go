@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package httpapi
 
 import (
@@ -11,12 +14,18 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	empty "google.golang.org/protobuf/types/known/emptypb"
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wspb"
 
+	"github.com/hashicorp/waypoint/pkg/protocolversion"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
 	"github.com/hashicorp/waypoint/pkg/server/gen/mocks"
 )
+
+// This code uses the magic token value 445DHu. This value is a base58 encoded
+// empty token. An empty token has the magic 'wp24' at the beginning, so this
+// empty token is just base58.Encode([]byte("wp24"))
 
 func TestHandleExec(t *testing.T) {
 	ctx := context.Background()
@@ -31,7 +40,7 @@ func TestHandleExec(t *testing.T) {
 	defer httpServer.Close()
 
 	// Dial it up
-	conn, _, err := websocket.Dial(ctx, httpServer.URL+"?token=foo-bar-baz", nil)
+	conn, _, err := websocket.Dial(ctx, httpServer.URL+"?token=445DHu", nil)
 	require.NoError(err)
 	defer conn.Close(websocket.StatusInternalError, "early exit")
 
@@ -80,12 +89,20 @@ func testServer(t *testing.T, impl pb.WaypointServer) string {
 type execImpl struct {
 	sync.Mutex
 	mocks.WaypointServer
+	pb.UnsafeWaypointServer
 
 	// Send is the list of responses to send
 	Send []*pb.ExecStreamResponse
 
 	// Recv is the list of requests received
 	Recv []*pb.ExecStreamRequest
+}
+
+// InlineKeepaliveInterceptor may call this
+func (v *execImpl) GetVersionInfo(_ context.Context, _ *empty.Empty) (*pb.GetVersionInfoResponse, error) {
+	return &pb.GetVersionInfoResponse{
+		Info: protocolversion.Current(),
+	}, nil
 }
 
 func (v *execImpl) StartExecStream(srv pb.Waypoint_StartExecStreamServer) error {

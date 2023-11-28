@@ -1,8 +1,12 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -18,6 +22,7 @@ import (
 	"github.com/hashicorp/go-argmapper"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/waypoint-plugin-sdk/component"
 	"github.com/hashicorp/waypoint-plugin-sdk/docs"
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
@@ -36,9 +41,11 @@ type AppDocsCommand struct {
 
 	flagBuiltin  bool
 	flagMarkdown bool
+	flagJson     bool
 	flagType     string
 	flagPlugin   string
 	flagMDX      bool
+	flagHCL      bool
 }
 
 func (c *AppDocsCommand) basicFormat(name, ct string, doc *docs.Documentation) {
@@ -202,6 +209,10 @@ func (c *AppDocsCommand) emitField(w io.Writer, h, out string, f *docs.FieldDocs
 		}
 	}
 
+	if f.EnvVar != "" {
+		fmt.Fprintf(&list, "\n- Environment Variable: **%s**", f.EnvVar)
+	}
+
 	if list.Len() != 0 {
 		parts = append(parts, list.String())
 	}
@@ -233,15 +244,25 @@ func endingSpace(w io.Writer, i, tot int) {
 
 func splitFields(fields []*docs.FieldDocs) (required, optional []*docs.FieldDocs) {
 	var o, r []*docs.FieldDocs
-
+	// Categories and fields are both stored in FieldDocs, so if we see a category then check if any of its sub fields are not optional.
+	// If so, the whole category goes in the required section of the website docs, with the optional fields still being labelled as such
+	// within the category
 	for _, f := range fields {
-		if f.Optional {
-			o = append(o, f)
-		} else {
+		var requiredSubfield bool
+		if sf := f.SubFields; len(sf) > 0 {
+			for _, fo := range sf {
+				if !fo.Optional {
+					requiredSubfield = true
+					break
+				}
+			}
+		}
+		if requiredSubfield || (!f.Optional && !f.Category) {
 			r = append(r, f)
+		} else {
+			o = append(o, f)
 		}
 	}
-
 	return r, o
 }
 
@@ -268,6 +289,73 @@ func (c *AppDocsCommand) emitSection(w io.Writer, name, use, h string, fields []
 		c.emitField(w, nh, "", f)
 		endingSpace(w, i, len(fields))
 	}
+}
+
+// jsonFormat attempts to output all the data included in a a plugin's Documentation() function in the JSON file format
+func (c *AppDocsCommand) jsonFormat(name, ct string, doc *docs.Documentation) {
+	// we use this constant to compare to ct for some special behavior
+	const csType = "configsourcer"
+
+	w, err := os.Create(fmt.Sprintf("./embedJson/gen/%s-%s.json", ct, name))
+	if err != nil {
+		c.ui.Output(fmt.Sprintf("Failed to create files: %s", clierrors.Humanize(err)), terminal.StatusError)
+		panic(err)
+	}
+
+	jMap := map[string]interface{}{"name": name, "type": ct}
+
+	dets := doc.Details()
+	if dets.Description != "" {
+		jMap["description"] = dets.Description
+	}
+
+	if dets.Input != "" {
+		jMap["input"] = dets.Input
+	}
+
+	if dets.Output != "" {
+		jMap["output"] = dets.Output
+	}
+
+	if dets.Example != "" {
+		jMap["example"] = strings.TrimSpace(dets.Example)
+	}
+
+	mappers := dets.Mappers
+	jMap["mappers"] = mappers
+
+	if ct == "configsourcer" {
+		required, optional := splitFields(doc.RequestFields())
+		jMap["requiredFields"] = required
+		jMap["optionalFields"] = optional
+		use := "`dynamic` for sourcing [configuration values](/waypoint/docs/app-config/dynamic) or [input variable values](/waypoint/docs/waypoint-hcl/variables/dynamic)."
+		jMap["use"] = use
+
+		if len(doc.Fields()) > 0 {
+			jMap["sourceFieldsHelp"] = "Source Parameters\n" +
+				"The parameters below are used with `waypoint config source-set` to configure\n" +
+				"the behavior this plugin. These are _not_ used in `dynamic` calls. The\n" +
+				"parameters used for `dynamic` are in the previous section.\n"
+
+			required, optional := splitFields(doc.Fields())
+			jMap["requiredSourceFields"] = required
+			jMap["optionalSourceFields"] = optional
+		}
+	} else {
+		required, optional := splitFields(doc.Fields())
+		use := "the [`use` stanza](/waypoint/docs/waypoint-hcl/use) for this plugin."
+		jMap["use"] = use
+		jMap["requiredFields"] = required
+		jMap["optionalFields"] = optional
+
+		if fields := doc.TemplateFields(); len(fields) > 0 {
+			jMap["outputAttrsHelp"] = "Output attributes can be used in your `waypoint.hcl` as [variables](/waypoint/docs/waypoint-hcl/variables) via [`artifact`](/waypoint/docs/waypoint-hcl/variables/artifact) or [`deploy`](/waypoint/docs/waypoint-hcl/variables/deploy)."
+			jMap["outputAttrs"] = fields
+		}
+	}
+
+	t, _ := json.MarshalIndent(jMap, "", "   ")
+	fmt.Fprintf(w, "%s\n", t)
 }
 
 func (c *AppDocsCommand) mdxFormat(name, ct string, doc *docs.Documentation) {
@@ -323,7 +411,7 @@ func (c *AppDocsCommand) mdxFormat(name, ct string, doc *docs.Documentation) {
 
 	required, optional := splitFields(doc.Fields())
 
-	use := "the [`use` stanza](/docs/waypoint-hcl/use) for this plugin."
+	use := "the [`use` stanza](/waypoint/docs/waypoint-hcl/use) for this plugin."
 	c.emitSection(w, "Required", use, "###", required)
 
 	fmt.Fprintf(w, "\n\n")
@@ -332,14 +420,260 @@ func (c *AppDocsCommand) mdxFormat(name, ct string, doc *docs.Documentation) {
 
 	if fields := doc.TemplateFields(); len(fields) > 0 {
 		fmt.Fprintf(w, "\n\n### Output Attributes\n")
-		fmt.Fprintf(w, "\nOutput attributes can be used in your `waypoint.hcl` as [variables](/docs/waypoint-hcl/variables) via [`artifact`](/docs/waypoint-hcl/variables/artifact) or [`deploy`](/docs/waypoint-hcl/variables/deploy).\n\n")
+		fmt.Fprintf(w, "\nOutput attributes can be used in your `waypoint.hcl` as [variables](/waypoint/docs/waypoint-hcl/variables) via [`artifact`](/waypoint/docs/waypoint-hcl/variables/artifact) or [`deploy`](/waypoint/docs/waypoint-hcl/variables/deploy).\n\n")
 		for i, f := range fields {
 			c.emitField(w, "####", "", f)
 			endingSpace(w, i, len(fields))
+
 		}
 	}
 
 	fmt.Fprintln(w)
+}
+
+func removeEmptyStrings(s []string) []string {
+	var r []string
+	for _, str := range s {
+		if str != "" {
+			r = append(r, str)
+		}
+	}
+	return r
+}
+
+// generates README.md, parameters.hcl, and outputs.hcl for builtin plugins' components
+func (c *AppDocsCommand) hclFormat(name, ct string, doc *docs.Documentation) {
+	// example target = builtin/aws/ami/components/builder/outputs.hcl
+
+	// mapping of component names to a slug
+	componentToDirMapping := map[string]string{
+		"builder":        "builder",
+		"configsourcer":  "config-sourcer",
+		"platform":       "platform",
+		"registry":       "registry",
+		"releasemanager": "release-manager",
+		"task":           "task",
+	}
+
+	// mapping of plugin names to proper /builtin folder paths
+	// see internal/plugin/plugin.go > Builtins
+	nameToDirMapping := map[string]string{
+		"aws-alb":                  "aws/alb",
+		"aws-ami":                  "aws/ami",
+		"aws-ec2":                  "aws/ec2",
+		"aws-ecr":                  "aws/ecr",
+		"aws-ecr-pull":             "aws/ecr/pull",
+		"aws-ecs":                  "aws/ecs",
+		"aws-lambda":               "aws/lambda",
+		"aws-ssm":                  "aws/ssm",
+		"azure-container-instance": "azure/aci",
+		"consul":                   "consul",
+		"docker":                   "docker",
+		"docker-pull":              "docker/pull",
+		"docker-ref":               "docker/ref",
+		"exec":                     "exec",
+		"files":                    "files",
+		"google-cloud-run":         "google/cloudrun",
+		"helm":                     "k8s/helm",
+		"lambda-function-url":      "aws/lambda/function_url",
+		"kubernetes":               "k8s",
+		"kubernetes-apply":         "k8s/apply",
+		"nomad":                    "nomad",
+		"nomad-jobspec":            "nomad/jobspec",
+		"nomad-jobspec-canary":     "nomad/canary",
+		"null":                     "null",
+		"pack":                     "pack",
+		"packer":                   "packer",
+		"terraform-cloud":          "tfc",
+		"vault":                    "vault",
+	}
+
+	componentSlug, ok := componentToDirMapping[ct]
+	if !ok {
+		panic(fmt.Sprintf("Component: %s has no mapping. Please manually add this mapping to `componentToDirMapping`.", ct))
+	}
+	pluginPath, ok := nameToDirMapping[name]
+	if !ok {
+		panic(fmt.Sprintf("Plugin: %s has no mapping. Please manually add this mapping to `nameToDirMapping`.", name))
+	}
+
+	dets := doc.Details()
+	componentPath := fmt.Sprintf("./builtin/%s/components/%s/%s", pluginPath, componentSlug, name+"-"+componentSlug)
+
+	// If no description, don't generate docs
+	if c.humanize(dets.Description) != "" {
+		// make component folder
+		os.MkdirAll(componentPath, os.ModePerm)
+
+		// populate README.md
+		readme, err := os.Create(fmt.Sprintf("%s/README.md", componentPath))
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Fprintln(readme, "<!-- This file was generated via `make gen/integrations-hcl` -->")
+
+		// fmt.Fprintf(readme, "## %s (%s)\n\n", name, ct)
+
+		if dets.Description != "" {
+			fmt.Fprintf(readme, "%s\n\n", c.humanize(dets.Description))
+		}
+
+		if componentSlug == "config-sourcer" || componentSlug == "task" {
+			// config-sourcer and task components don't have inputs or outputs
+			// don't generate interface section
+		} else {
+			fmt.Fprintf(readme, "### Interface\n\n")
+		}
+
+		space := false
+
+		if dets.Input != "" {
+			fmt.Fprintf(readme, "- Input: **%s**\n", dets.Input)
+			space = true
+		}
+
+		if dets.Output != "" {
+			fmt.Fprintf(readme, "- Output: **%s**\n", dets.Output)
+			space = true
+		}
+
+		if space {
+			fmt.Fprintln(readme)
+		}
+
+		if dets.Example != "" {
+			fmt.Fprintf(readme, "### Examples\n\n```hcl\n%s\n```\n\n", strings.TrimSpace(dets.Example))
+		}
+
+		mappers := dets.Mappers
+		if len(mappers) > 0 {
+			fmt.Fprintf(readme, "### Mappers\n\n")
+
+			for _, m := range mappers {
+				fmt.Fprintf(readme, "#### %s\n\n", m.Description)
+				fmt.Fprintf(readme, "- Input: **%s**\n", m.Input)
+				fmt.Fprintf(readme, "- Output: **%s**\n", m.Output)
+				fmt.Fprintln(readme)
+			}
+		}
+	}
+
+	// Only create parameters.hcl if there are fields
+	if fields := doc.Fields(); len(fields) > 0 {
+		// parameter {
+		//   key = "hi"
+		// 	 description = <<EOT
+		// a description
+		// EOT
+		// 	 type = "string"
+		// 	 required = true
+		// 	 default_value = "something"
+		// }
+		parameters, err := os.Create(fmt.Sprintf("%s/parameters.hcl", componentPath))
+		if err != nil {
+			panic(err)
+		}
+		fmt.Fprintln(parameters, "# This file was generated via `make gen/integrations-hcl`")
+
+		// create new empty hcl file object
+		f := hclwrite.NewEmptyFile()
+		rootBody := f.Body()
+
+		// recursive helper for sub fields
+		var generateSubFields func(fields []*docs.FieldDocs, keyPath []string)
+		generateSubFields = func(fields []*docs.FieldDocs, keyPath []string) {
+			for _, param := range fields {
+				parameterBlock := rootBody.AppendNewBlock("parameter", nil)
+				isCategory := param.Category
+				body := parameterBlock.Body()
+
+				keys := append(keyPath, param.Field)
+				key := strings.Join(keys, ".")
+				body.SetAttributeValue("key", cty.StringVal(key))
+
+				description := strings.Join(removeEmptyStrings([]string{param.Synopsis, param.Summary}), "\n")
+				body.SetAttributeValue("description", cty.StringVal(description))
+				if isCategory {
+					body.SetAttributeValue("type", cty.StringVal("category"))
+				} else {
+					body.SetAttributeValue("type", cty.StringVal(param.Type))
+				}
+				body.SetAttributeValue("required", cty.BoolVal(!param.Optional))
+				if param.Default != "" {
+					body.SetAttributeValue("default_value", cty.StringVal(param.Default))
+				}
+				rootBody.AppendNewline()
+
+				if isCategory {
+					generateSubFields(param.SubFields, keys)
+				}
+			}
+		}
+
+		// loop over fields and create parameter blocks
+		for _, param := range fields {
+			parameterBlock := rootBody.AppendNewBlock("parameter", nil)
+			isCategory := param.Category
+			body := parameterBlock.Body()
+			key := param.Field
+			body.SetAttributeValue("key", cty.StringVal(key))
+
+			description := strings.Join(removeEmptyStrings([]string{param.Synopsis, param.Summary}), "\n")
+			body.SetAttributeValue("description", cty.StringVal(description))
+			if isCategory {
+				body.SetAttributeValue("type", cty.StringVal("category"))
+			} else {
+				body.SetAttributeValue("type", cty.StringVal(param.Type))
+			}
+			body.SetAttributeValue("required", cty.BoolVal(!param.Optional))
+			if param.Default != "" {
+				body.SetAttributeValue("default_value", cty.StringVal(param.Default))
+			}
+			rootBody.AppendNewline()
+
+			// recursively handle subfields
+			if isCategory {
+				generateSubFields(param.SubFields, []string{param.Field})
+			}
+		}
+
+		f.WriteTo(parameters)
+	}
+
+	// Only create outputs.hcl if there are output fields
+	if fields := doc.TemplateFields(); len(fields) > 0 {
+		outputs, err := os.Create(fmt.Sprintf("%s/outputs.hcl", componentPath))
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Fprintln(outputs, "# This file was generated via `make gen/integrations-hcl`")
+
+		// create new empty hcl file object
+		f := hclwrite.NewEmptyFile()
+		rootBody := f.Body()
+
+		// loop over fields and create output blocks
+		for _, param := range fields {
+			// output {
+			// 	key         = "image"
+			// 	description = ""
+			// 	type        = "string"
+			// }
+			parameterBlock := rootBody.AppendNewBlock("output", nil)
+			body := parameterBlock.Body()
+			body.SetAttributeValue("key", cty.StringVal(param.Field))
+
+			description := strings.Join(removeEmptyStrings([]string{param.Synopsis, param.Summary}), "\n")
+			body.SetAttributeValue("description", cty.StringVal(description))
+			body.SetAttributeValue("type", cty.StringVal(param.Type))
+
+			rootBody.AppendNewline()
+		}
+
+		f.WriteTo(outputs)
+	}
 }
 
 func (c *AppDocsCommand) mdxFormatConfigSourcer(name, ct string, doc *docs.Documentation) {
@@ -375,7 +709,7 @@ func (c *AppDocsCommand) mdxFormatConfigSourcer(name, ct string, doc *docs.Docum
 
 	required, optional := splitFields(doc.RequestFields())
 
-	use := "`dynamic` for sourcing [configuration values](/docs/app-config/dynamic) or [input variable values](/docs/waypoint-hcl/variables/dynamic)."
+	use := "`dynamic` for sourcing [configuration values](/waypoint/docs/app-config/dynamic) or [input variable values](/waypoint/docs/waypoint-hcl/variables/dynamic)."
 	c.emitSection(w, "Required", use, "###", required)
 
 	fmt.Fprintf(w, "\n\n")
@@ -566,6 +900,8 @@ func (c *AppDocsCommand) builtinDocs(args []string) int {
 	for _, pluginDoc := range pluginDocs {
 		if c.flagMarkdown {
 			c.markdownFormat(pluginDoc.pluginName, pluginDoc.pluginType, pluginDoc.doc)
+		} else if c.flagJson {
+			c.jsonFormat(pluginDoc.pluginName, pluginDoc.pluginType, pluginDoc.doc)
 		} else {
 			c.basicFormat(pluginDoc.pluginName, pluginDoc.pluginType, pluginDoc.doc)
 		}
@@ -574,6 +910,54 @@ func (c *AppDocsCommand) builtinDocs(args []string) int {
 	return 0
 }
 
+func (c *AppDocsCommand) builtinJSON() int {
+
+	var pluginNames []string
+	if c.flagPlugin != "" {
+		pluginNames = append(pluginNames, c.flagPlugin)
+	} else {
+		// Use all plugins
+		for pluginName := range plugin.Builtins {
+			pluginNames = append(pluginNames, pluginName)
+		}
+	}
+
+	pluginDocs, err := getDocs(pluginNames, c.Log)
+	if err != nil {
+		c.ui.Output(fmt.Sprintf("Failed to get plugin docs: %s", clierrors.Humanize(err)), terminal.StatusError)
+		return 1
+	}
+
+	for _, pluginDoc := range pluginDocs {
+		c.jsonFormat(pluginDoc.pluginName, pluginDoc.pluginType, pluginDoc.doc)
+	}
+
+	return c.funcsMDX()
+}
+
+func (c *AppDocsCommand) builtinHCL() int {
+	var pluginNames []string
+	if c.flagPlugin != "" {
+		pluginNames = append(pluginNames, c.flagPlugin)
+	} else {
+		// Use all plugins
+		for pluginName := range plugin.Builtins {
+			pluginNames = append(pluginNames, pluginName)
+		}
+	}
+
+	pluginDocs, err := getDocs(pluginNames, c.Log)
+	if err != nil {
+		c.ui.Output(fmt.Sprintf("Failed to get plugin docs: %s", err), terminal.StatusError)
+		return 1
+	}
+
+	for _, pluginDoc := range pluginDocs {
+		c.hclFormat(pluginDoc.pluginName, pluginDoc.pluginType, pluginDoc.doc)
+	}
+
+	return 0
+}
 func (c *AppDocsCommand) builtinMDX() int {
 
 	var pluginNames []string
@@ -683,6 +1067,10 @@ func (c *AppDocsCommand) Run(args []string) int {
 			needCfg = false
 		}
 
+		if s == "-hcl" {
+			needCfg = false
+		}
+
 		if s == "-builtin" {
 			needCfg = false
 		}
@@ -711,6 +1099,14 @@ func (c *AppDocsCommand) Run(args []string) int {
 
 	if c.flagMDX {
 		return c.builtinMDX()
+	}
+
+	if c.flagHCL {
+		return c.builtinHCL()
+	}
+
+	if c.flagJson {
+		return c.builtinJSON()
 	}
 
 	err = c.DoApp(c.Ctx, func(ctx context.Context, app *clientpkg.App) error {
@@ -829,6 +1225,12 @@ func (c *AppDocsCommand) Flags() *flag.Sets {
 			Usage:  "Show documentation in markdown format",
 		})
 
+		f.BoolVar(&flag.BoolVar{
+			Name:   "json",
+			Target: &c.flagJson,
+			Usage:  "Generate documentation in json format",
+		})
+
 		f.StringVar(&flag.StringVar{
 			Name:   "type",
 			Target: &c.flagType,
@@ -845,6 +1247,13 @@ func (c *AppDocsCommand) Flags() *flag.Sets {
 			Name:   "website-mdx",
 			Target: &c.flagMDX,
 			Usage:  "Write out builtin docs inclusion on the waypoint website",
+			Hidden: true,
+		})
+
+		f.BoolVar(&flag.BoolVar{
+			Name:   "hcl",
+			Target: &c.flagHCL,
+			Usage:  "Output HCL for integrations",
 			Hidden: true,
 		})
 	})

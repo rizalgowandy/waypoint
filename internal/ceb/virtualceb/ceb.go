@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package virtualceb
 
 import (
@@ -6,12 +9,13 @@ import (
 	"io"
 	"time"
 
-	"github.com/golang/protobuf/ptypes"
 	"github.com/hashicorp/go-hclog"
-	"github.com/hashicorp/waypoint-plugin-sdk/component"
-	pb "github.com/hashicorp/waypoint/pkg/server/gen"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/hashicorp/waypoint-plugin-sdk/component"
+	pb "github.com/hashicorp/waypoint/pkg/server/gen"
 
 	"github.com/hashicorp/waypoint/internal/appconfig"
 	"github.com/hashicorp/waypoint/internal/ceb/execwriter"
@@ -88,7 +92,7 @@ func New(log hclog.Logger, cfg Config) (*Virtual, error) {
 }
 
 // RunExec connects to the server and handles any inbound Exec requests via the
-// ExecHandler. The count parameter inidcates how many exec sessions to handle
+// ExecHandler. The count parameter indicates how many exec sessions to handle
 // before returning. If count is less than 0, it handles sessions forever.
 func (v *Virtual) RunExec(ctx context.Context, h ExecHandler, count int) error {
 	v.log.Info("connecting virtual instance")
@@ -404,10 +408,7 @@ func (v *Virtual) RunLogs(
 				return nil
 			}
 
-			ts, err := ptypes.TimestampProto(lev.Timestamp)
-			if err == nil {
-				ts = ptypes.TimestampNow()
-			}
+			ts := timestamppb.New(lev.Timestamp)
 
 			entry := &pb.LogBatch_Entry{
 				Source:    pb.LogBatch_Entry_APP,

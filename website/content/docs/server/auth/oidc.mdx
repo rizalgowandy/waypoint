@@ -5,6 +5,12 @@ description: |-
   Waypoint can be configured to use OpenID Connect (OIDC) for authentication. This enables you to use existing identity providers such as Google, Okta, GitLab, and more.
 ---
 
+<Warning>
+
+This content is part of the legacy version of Waypoint that is no longer actively maintained. For additional information on the new vision of Waypoint, check out [this blog post](https://www.hashicorp.com/blog/a-new-vision-for-hcp-waypoint) and the [HCP Waypoint documentation](/hcp/docs/waypoint).
+
+</Warning>
+
 # OpenID Connect (OIDC)
 
 Waypoint can be configured to use OpenID Connect (OIDC) for
@@ -18,14 +24,14 @@ authenticate and acquire a token.
 ## Configuring OIDC
 
 You can configure OIDC using the
-[waypoint auth-method set oidc](/commands/auth-method-set-oidc) CLI command.
+[waypoint auth-method set oidc](/waypoint/commands/auth-method-set-oidc) CLI command.
 Please see the documentation for that command for all available options.
 
 Before you setup OIDC, you'll need at least the client ID and client secret
 for your identity provider. Please see the documentation for your identity
 provider to determine what these values are. See [Popular OIDC Providers](#popular-oidc-providers)
 for some help and guidance with specific popular providers. Please read the
-documentation on [redirect URLs](/docs/server/auth/oidc#redirect-urls) while
+documentation on [redirect URLs](/waypoint/docs/server/auth/oidc#redirect-urls) while
 configuring your OIDC provider.
 
 Once you have the required information, use the CLI:
@@ -58,6 +64,17 @@ You should set the following redirect URLs:
   OIDC authentication to work. In this case, "ui addr" should be the
   routable UI address you visit. And note you SHOULD set TLS (`https`) for
   this.
+
+To set the UI-based URL when setting up your auth method, add the `allowed-redirect-uri` flag:
+
+```
+$ waypoint auth-method set oidc \
+  -client-id=87a30dc693eb4db0a807c9faked4e0e643277f698aff83df5661021b6fc2d742 \
+  -client-secret=11360b5e9d7a54435dstillfake0b2c0e49ca866676f00ab02ad0e8e2a6c \
+  -issuer=https://accounts.google.com \
+  -allowed-redirect-uri=https://<ui addr>/auth/oidc-callback
+  google
+```
 
 ### Restricting Access
 
@@ -93,7 +110,7 @@ used for all direct values and will be exposed as `value.<name>`.
 The selector `mycompany in list.groups` configures the provider to require
 the user to be in the group "mycompany" to authenticate. This can be used
 to restrict users to your Waypoint server. For full documentation on the
-available syntax, see the [Consul documentation](https://www.consul.io/api/features/filtering#creating-expressions) which uses the same syntax.
+available syntax, see the [Consul documentation](/consul/api-docs/features/filtering#creating-expressions) which uses the same syntax.
 
 ## Account Mapping
 

@@ -1,10 +1,13 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package core
 
 import (
 	"context"
 	"testing"
 
-	"github.com/golang/protobuf/ptypes"
+	"github.com/hashicorp/opaqueany"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/hashicorp/waypoint-plugin-sdk/component"
@@ -16,7 +19,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/anypb"
 )
 
 func TestAppDeploymentStatusReport(t *testing.T) {
@@ -39,11 +41,11 @@ func TestAppDeploymentStatusReport(t *testing.T) {
 		client := app.client
 
 		// We're using GetVersionInfoResponse here just because it is a proto message
-		// that can be converted to an any.Any easily. We never use it, it's just to keep
+		// that can be converted to an opaqueany.Any easily. We never use it, it's just to keep
 		// the tests from blowing up with a nil reference.
 		mockPluginArtifact := &pb.GetVersionInfoResponse{}
 
-		anyval, err := ptypes.MarshalAny(mockPluginArtifact)
+		anyval, err := opaqueany.New(mockPluginArtifact)
 		require.NoError(err)
 
 		aresp, err := client.UpsertPushedArtifact(ctx, &pb.UpsertPushedArtifactRequest{
@@ -92,11 +94,11 @@ func TestAppDeploymentStatusReport(t *testing.T) {
 		client := app.client
 
 		// We're using GetVersionInfoResponse here just because it is a proto message
-		// that can be converted to an any.Any easily. We never use it, it's just to keep
+		// that can be converted to an opaqueany.Any easily. We never use it, it's just to keep
 		// the tests from blowing up with a nil reference.
 		mockPluginArtifact := &pb.GetVersionInfoResponse{}
 
-		anyval, err := ptypes.MarshalAny(mockPluginArtifact)
+		anyval, err := opaqueany.New(mockPluginArtifact)
 		require.NoError(err)
 
 		aresp, err := client.UpsertPushedArtifact(ctx, &pb.UpsertPushedArtifactRequest{
@@ -136,7 +138,8 @@ func TestAppDeploymentStatusReport(t *testing.T) {
 		// Status Report
 		srResp, err := app.DeploymentStatusReport(context.Background(), deploy)
 		statusReport := &sdk.StatusReport{}
-		anypb.UnmarshalTo(srResp.StatusReport, statusReport, proto.UnmarshalOptions{})
+
+		opaqueany.UnmarshalTo(srResp.StatusReport, statusReport, proto.UnmarshalOptions{})
 		require.NoError(err)
 		require.NotNil(srResp.StatusReport)
 		require.NotNil(statusReport.Health)
@@ -176,11 +179,11 @@ func TestAppReleaseStatusReport(t *testing.T) {
 		client := app.client
 
 		// We're using GetVersionInfoResponse here just because it is a proto message
-		// that can be converted to an any.Any easily. We never use it, it's just to keep
+		// that can be converted to an opaqueany.Any easily. We never use it, it's just to keep
 		// the tests from blowing up with a nil reference.
 		mockPluginArtifact := &pb.GetVersionInfoResponse{}
 
-		anyval, err := ptypes.MarshalAny(mockPluginArtifact)
+		anyval, err := opaqueany.New(mockPluginArtifact)
 		require.NoError(err)
 
 		aresp, err := client.UpsertPushedArtifact(ctx, &pb.UpsertPushedArtifactRequest{
@@ -236,11 +239,11 @@ func TestAppReleaseStatusReport(t *testing.T) {
 		client := app.client
 
 		// We're using GetVersionInfoResponse here just because it is a proto message
-		// that can be converted to an any.Any easily. We never use it, it's just to keep
+		// that can be converted to an opaqueany.Any easily. We never use it, it's just to keep
 		// the tests from blowing up with a nil reference.
 		mockPluginArtifact := &pb.GetVersionInfoResponse{}
 
-		anyval, err := ptypes.MarshalAny(mockPluginArtifact)
+		anyval, err := opaqueany.New(mockPluginArtifact)
 		require.NoError(err)
 
 		aresp, err := client.UpsertPushedArtifact(ctx, &pb.UpsertPushedArtifactRequest{
@@ -278,7 +281,7 @@ func TestAppReleaseStatusReport(t *testing.T) {
 		// Status Report
 		srResp, err := app.ReleaseStatusReport(context.Background(), release)
 		statusReport := &sdk.StatusReport{}
-		anypb.UnmarshalTo(srResp.StatusReport, statusReport, proto.UnmarshalOptions{})
+		opaqueany.UnmarshalTo(srResp.StatusReport, statusReport, proto.UnmarshalOptions{})
 		require.NoError(err)
 		require.NotNil(srResp.StatusReport)
 		require.NotNil(statusReport.Health)

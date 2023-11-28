@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package server
 
 import (
@@ -49,7 +52,11 @@ func Run(opts ...Option) error {
 	httpErrs := make(chan error, len(cfg.HTTPListener))
 	for _, ln := range cfg.HTTPListener {
 		wg.Add(1)
-		httpServer := newHttpServer(grpcServer.server, ln, &cfg)
+		httpServer, err := newHttpServer(grpcServer.server, ln, &cfg)
+		if err != nil {
+			log.Error("failed setting up http server", "err", err)
+			return err
+		}
 		go func() {
 			err := httpServer.start()
 			httpErrs <- err

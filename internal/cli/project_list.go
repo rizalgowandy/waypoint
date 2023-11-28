@@ -1,18 +1,25 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
+	"fmt"
 	"sort"
 
-	"github.com/golang/protobuf/ptypes/empty"
+	"github.com/golang/protobuf/jsonpb"
 	"github.com/posener/complete"
 
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
 	"github.com/hashicorp/waypoint/internal/clierrors"
 	"github.com/hashicorp/waypoint/internal/pkg/flag"
+	pb "github.com/hashicorp/waypoint/pkg/server/gen"
 )
 
 type ProjectListCommand struct {
 	*baseCommand
+
+	flagJson bool
 }
 
 func (c *ProjectListCommand) Run(args []string) int {
@@ -25,10 +32,25 @@ func (c *ProjectListCommand) Run(args []string) int {
 		return 1
 	}
 
-	resp, err := c.project.Client().ListProjects(c.Ctx, &empty.Empty{})
+	resp, err := c.project.Client().ListProjects(c.Ctx, &pb.ListProjectsRequest{Pagination: &pb.PaginationRequest{}})
 	if err != nil {
 		c.ui.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
 		return 1
+	}
+
+	if c.flagJson {
+		var m jsonpb.Marshaler
+		m.Indent = "\t"
+		for _, p := range resp.Projects {
+			str, err := m.MarshalToString(p)
+			if err != nil {
+				c.ui.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
+				return 1
+			}
+
+			fmt.Println(str)
+		}
+		return 0
 	}
 
 	var result []string
@@ -49,7 +71,15 @@ func (c *ProjectListCommand) Run(args []string) int {
 }
 
 func (c *ProjectListCommand) Flags() *flag.Sets {
-	return c.flagSet(0, nil)
+	return c.flagSet(flagSetOperation, func(set *flag.Sets) {
+		f := set.NewSet("Command Options")
+		f.BoolVar(&flag.BoolVar{
+			Name:    "json",
+			Target:  &c.flagJson,
+			Default: false,
+			Usage:   "Output the Project names as json.",
+		})
+	})
 }
 
 func (c *ProjectListCommand) AutocompleteArgs() complete.Predictor {

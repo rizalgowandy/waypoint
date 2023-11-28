@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 //go:build tools
 // +build tools
 
@@ -9,23 +12,22 @@
 package tools
 
 //go:generate go install github.com/kevinburke/go-bindata
-import _ "github.com/kevinburke/go-bindata"
-
-//go:generate go install github.com/golang/protobuf/proto
-import _ "github.com/golang/protobuf/proto"
-
-//go:generate go install github.com/golang/protobuf/protoc-gen-go
-import _ "github.com/golang/protobuf/protoc-gen-go"
-
+//go:generate go install google.golang.org/protobuf/cmd/protoc-gen-go
+//go:generate go install google.golang.org/grpc/cmd/protoc-gen-go-grpc
 //go:generate go install github.com/mitchellh/protoc-gen-go-json
-import _ "github.com/mitchellh/protoc-gen-go-json"
 
 // Using a fork of grpc-gateway to fix a bug they have in "nested query param generation"
 //go:generate go install github.com/evanphx/grpc-gateway/protoc-gen-swagger
-import _ "github.com/evanphx/grpc-gateway/protoc-gen-swagger"
 
-//go:generate go install github.com/grpc-ecosystem/grpc-gateway/protoc-gen-grpc-gateway
-import _ "github.com/grpc-ecosystem/grpc-gateway/protoc-gen-grpc-gateway"
+//go:generate go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway
+//go:generate go install "-ldflags=-s -w -X github.com/vektra/mockery/cmd/mockery.SemVer=2.15.0" github.com/vektra/mockery/v2@v2.15.0
 
-//go:generate go install "-ldflags=-s -w -X github.com/vektra/mockery/mockery.SemVer=1.1.2" github.com/vektra/mockery/cmd/mockery
-import _ "github.com/vektra/mockery"
+import (
+	_ "github.com/evanphx/grpc-gateway/protoc-gen-swagger"
+	_ "github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway"
+	_ "github.com/kevinburke/go-bindata"
+	_ "github.com/mitchellh/protoc-gen-go-json"
+	_ "github.com/vektra/mockery/v2/cmd"
+	_ "google.golang.org/grpc/cmd/protoc-gen-go-grpc"
+	_ "google.golang.org/protobuf/cmd/protoc-gen-go"
+)

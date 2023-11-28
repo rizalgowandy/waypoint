@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
@@ -68,6 +71,7 @@ func (c *ExecCommand) searchDeployments(
 	// Get the latest deployment
 	resp, err := client.ListDeployments(ctx, &pb.ListDeploymentsRequest{
 		Application: app.Ref(),
+		Workspace:   c.project.WorkspaceRef(),
 		Order: &pb.OperationOrder{
 			Limit: 1,
 			Order: pb.OperationOrder_COMPLETE_TIME,

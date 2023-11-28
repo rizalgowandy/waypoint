@@ -1,24 +1,38 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package serverinstall
 
 import (
 	"context"
 	json "encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hashicorp/waypoint/internal/installutil"
+
+	"github.com/hashicorp/waypoint/internal/installutil/nomad"
+	"github.com/hashicorp/waypoint/internal/runnerinstall"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/hashicorp/nomad/api"
+
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
+
 	"github.com/hashicorp/waypoint/internal/clicontext"
 	"github.com/hashicorp/waypoint/internal/clierrors"
 	"github.com/hashicorp/waypoint/internal/pkg/flag"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
 	"github.com/hashicorp/waypoint/pkg/serverconfig"
 )
+
+const runnerJobName string = "waypoint-static-runner"
 
 type NomadInstaller struct {
 	config nomadConfig
@@ -30,11 +44,19 @@ type nomadConfig struct {
 	namespace          string            `hcl:"namespace,optional"`
 	serviceAnnotations map[string]string `hcl:"service_annotations,optional"`
 
+	serviceProvider    string   `hcl:"service_provider,optional"`
+	serviceUITags      []string `hcl:"service_ui_tags:optional"`
+	serviceBackendTags []string `hcl:"service_backend_tags:optional"`
+	serviceAddress     string   `hcl:"service_address,optional"`
+	networkMode        string   `hcl:"network_mode,optional"`
+	hostNetwork        string   `hcl:"host_network,optional"`
+
 	consulService            bool     `hcl:"consul_service,optional"`
 	consulServiceUITags      []string `hcl:"consul_service_ui_tags:optional"`
 	consulServiceBackendTags []string `hcl:"consul_service_backend_tags:optional"`
 	consulDatacenter         string   `hcl:"consul_datacenter,optional"`
-	consulDomain             string   `hcl:"consul_datacenter,optional"`
+	consulDomain             string   `hcl:"consul_domain,optional"`
+	consulToken              string   `hcl:"consul_token,optional"`
 
 	// If set along with consul, will use this hostname instead of
 	// making a consul DNS hostname for the server address in its context
@@ -42,22 +64,34 @@ type nomadConfig struct {
 
 	odrImage string `hcl:"odr_image,optional"`
 
-	region         string   `hcl:"namespace,optional"`
+	region         string   `hcl:"region,optional"`
 	datacenters    []string `hcl:"datacenters,optional"`
 	policyOverride bool     `hcl:"policy_override,optional"`
 
 	serverResourcesCPU    string `hcl:"server_resources_cpu,optional"`
 	serverResourcesMemory string `hcl:"server_resources_memory,optional"`
-	runnerResourcesCPU    string `hcl:"runner_resources_cpu,optional"`
-	runnerResourcesMemory string `hcl:"runner_resources_memory,optional"`
 
-	hostVolume           string `hcl:"host_volume,optional"`
-	csiVolumeProvider    string `hcl:"csi_volume_provider,optional"`
-	csiVolumeCapacityMin int64  `hcl:"csi_volume_capacity_min,optional"`
-	csiVolumeCapacityMax int64  `hcl:"csi_volume_capacity_max,optional"`
-	csiFS                string `hcl:"csi_fs,optional"`
+	hostVolume           string            `hcl:"host_volume,optional"`
+	csiVolumeProvider    string            `hcl:"csi_volume_provider,optional"`
+	csiVolumeCapacityMin int64             `hcl:"csi_volume_capacity_min,optional"`
+	csiVolumeCapacityMax int64             `hcl:"csi_volume_capacity_max,optional"`
+	csiFS                string            `hcl:"csi_fs,optional"`
+	csiMountFlags        []string          `hcl:"csi_mount_flags,optional"`
+	csiPluginId          string            `hcl:"csi_plugin_id,optional"`
+	csiExternalId        string            `hcl:"nomad_csi_external_id,optional"`
+	csiTopologies        map[string]string `hcl:"nomad_csi_topologies,optional"`
+	csiSecrets           map[string]string `hcl:"nomad_csi_secrets,optional"`
+	csiParams            map[string]string `hcl:"csi_parameters,optional"`
+	csiVolume            string            `hcl:"nomad_csi_volume,optional"`
+	nomadHost            string            `hcl:"nomad_host,optional"`
 
-	nomadHost string `hcl:"nomad_host,optional"`
+	runnerResourcesCPU         string `hcl:"runner_resources_cpu,optional"`
+	runnerResourcesMemory      string `hcl:"runner_resources_memory,optional"`
+	runnerHostVolume           string `hcl:"runner_host_volume,optional"`
+	runnerCsiVolumeProvider    string `hcl:"runner_csi_volume_provider,optional"`
+	runnerCsiVolumeCapacityMin int64  `hcl:"runner_csi_volume_capacity_min,optional"`
+	runnerCsiVolumeCapacityMax int64  `hcl:"runner_csi_volume_capacity_max,optional"`
+	runnerCsiVolume            string `hcl:"runner_csi_volume,optional"`
 }
 
 var (
@@ -73,13 +107,13 @@ var (
 	defaultCSIVolumeMountFS = "xfs"
 
 	// Defaults to use for setting up Consul
-	defaultConsulServiceTag       = "waypoint"
+	defaultServiceTag             = "waypoint"
 	defaultConsulDatacenter       = "dc1"
 	defaultConsulDomain           = "consul"
-	waypointConsulBackendName     = "waypoint-server"
-	waypointConsulUIName          = "waypoint-ui"
+	waypointBackendServiceName    = "waypoint-server"
+	waypointUIServiceName         = "waypoint-ui"
 	defaultWaypointConsulHostname = fmt.Sprintf("%s.%s.service.%s.%s",
-		defaultConsulServiceTag, waypointConsulBackendName, defaultConsulDatacenter, defaultConsulDomain)
+		defaultServiceTag, waypointBackendServiceName, defaultConsulDatacenter, defaultConsulDomain)
 
 	defaultNomadHost = "http://localhost:4646"
 )
@@ -89,7 +123,7 @@ var (
 func (i *NomadInstaller) Install(
 	ctx context.Context,
 	opts *InstallOpts,
-) (*InstallResults, error) {
+) (*InstallResults, string, error) {
 	ui := opts.UI
 
 	sg := ui.StepGroup()
@@ -101,7 +135,7 @@ func (i *NomadInstaller) Install(
 	// Build api client from environment
 	client, err := api.NewClient(api.DefaultConfig())
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	s.Update("Checking for existing Waypoint server...")
@@ -109,14 +143,14 @@ func (i *NomadInstaller) Install(
 	// Check if waypoint-server has already been deployed
 	jobs, _, err := client.Jobs().PrefixList(serverName)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	var serverDetected bool
 	for _, j := range jobs {
 		if j.Name == serverName {
 			if j.Status != "running" {
-				return nil, fmt.Errorf("waypoint-server job found but not running")
+				return nil, "", fmt.Errorf("waypoint-server job found but not running")
 			}
 			serverDetected = true
 			break
@@ -125,9 +159,9 @@ func (i *NomadInstaller) Install(
 
 	if i.config.odrImage == "" {
 		var err error
-		i.config.odrImage, err = defaultODRImage(i.config.serverImage)
+		i.config.odrImage, err = installutil.DeriveDefaultODRImage(i.config.serverImage)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 	}
 
@@ -149,7 +183,7 @@ func (i *NomadInstaller) Install(
 	if serverDetected {
 		allocs, _, err := client.Jobs().Allocations(serverName, false, nil)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 
 		var activeAllocs []*api.AllocationListStub
@@ -159,11 +193,11 @@ func (i *NomadInstaller) Install(
 			}
 		}
 		if len(allocs) == 0 || len(activeAllocs) == 0 {
-			return nil, fmt.Errorf("waypoint-server job found but no running allocations available")
+			return nil, "", fmt.Errorf("waypoint-server job found but no running allocations available")
 		}
 		serverAddr, err := getAddrFromAllocID(allocs[0].ID, client)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 
 		s.Update("Detected existing Waypoint server")
@@ -177,96 +211,54 @@ func (i *NomadInstaller) Install(
 			Context:       &clicfg,
 			AdvertiseAddr: &addr,
 			HTTPAddr:      httpAddr,
-		}, nil
+		}, "", nil
 	}
 
 	if i.config.csiVolumeProvider == "" && i.config.hostVolume == "" {
-		return nil, fmt.Errorf("please include '-nomad-csi-volume-provider' or '-nomad-host-volume'")
+		return nil, "", fmt.Errorf("please include '-nomad-csi-volume-provider' or '-nomad-host-volume'")
 	} else if i.config.csiVolumeProvider != "" {
 		if i.config.hostVolume != "" {
-			return nil, fmt.Errorf("choose either CSI or host volume, not both")
+			return nil, "", fmt.Errorf("choose either CSI or host volume, not both")
 		}
 
 		s.Update("Creating persistent volume")
-
-		vol := api.CSIVolume{
-			ID:   "waypoint",
-			Name: "waypoint",
-			RequestedCapabilities: []*api.CSIVolumeCapability{
-				{
-					AccessMode:     "single-node-writer",
-					AttachmentMode: "file-system",
-				},
-			},
-			MountOptions: &api.CSIMountOptions{
-				FSType:     defaultCSIVolumeMountFS,
-				MountFlags: []string{"noatime"},
-			},
-			RequestedCapacityMin: defaultCSIVolumeCapacityMin,
-			RequestedCapacityMax: defaultCSIVolumeCapacityMax,
-			PluginID:             i.config.csiVolumeProvider,
-		}
-		if i.config.csiVolumeCapacityMin != 0 {
-			vol.RequestedCapacityMin = i.config.csiVolumeCapacityMin
-		}
-		if i.config.csiVolumeCapacityMax != 0 {
-			vol.RequestedCapacityMax = i.config.csiVolumeCapacityMax
-		}
-		if i.config.csiFS != "" {
-			vol.MountOptions.FSType = i.config.csiFS
-		}
-
-		_, _, err = client.CSIVolumes().Create(&vol, &api.WriteOptions{})
+		err = nomad.CreatePersistentVolume(
+			ctx,
+			client,
+			"waypoint-server",
+			i.config.csiVolume,
+			i.config.csiPluginId,
+			i.config.csiVolumeProvider,
+			i.config.csiFS,
+			i.config.csiExternalId,
+			i.config.csiVolumeCapacityMin,
+			i.config.csiVolumeCapacityMax,
+			i.config.csiTopologies,
+			i.config.csiSecrets,
+			i.config.csiParams,
+			i.config.csiMountFlags,
+		)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "Failed creating Nomad persistent volume ID %s: %s", vol.ID, err)
+			return nil, "", status.Errorf(codes.Internal, "Failed creating Nomad persistent volume: %s", err)
 		}
+		s.Update("Persistent volume created!")
+		s.Status(terminal.StatusOK)
+		s.Done()
 	}
 
 	s.Update("Installing Waypoint server to Nomad")
-	allocID, err := i.runJob(ctx, s, client, waypointNomadJob(i.config, opts.ServerRunFlags))
+	allocID, err := nomad.RunJob(ctx, s, client, waypointNomadJob(i.config, opts.ServerRunFlags, false), i.config.policyOverride)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// If a Consul service was requested, set the consul DNS hostname rather
 	// than the direct static IP for the CLI context and server config. Otherwise
 	// if Nomad restarts the server allocation, a new IP will be assigned and any
 	// configured clients will be invalid
-	if i.config.consulService {
-		s.Update("Configuring the server context to use Consul DNS hostname")
-		if i.config.consulDatacenter == "" {
-			i.config.consulDatacenter = defaultConsulDatacenter
-		}
-		if i.config.consulDomain == "" {
-			i.config.consulDomain = defaultConsulDomain
-		}
-
-		grpcPort, _ := strconv.Atoi(defaultGrpcPort)
-		httpPort, _ := strconv.Atoi(defaultHttpPort)
-
-		if i.config.consulServiceHostname == "" {
-			addr.Addr = fmt.Sprintf("%s.service.%s.%s:%d",
-				waypointConsulBackendName, i.config.consulDatacenter, i.config.consulDomain, grpcPort)
-			httpAddr = fmt.Sprintf("%s.service.%s.%s:%d",
-				waypointConsulUIName, i.config.consulDatacenter, i.config.consulDomain, httpPort)
-		} else {
-			addr.Addr = fmt.Sprintf("%s:%d", i.config.consulServiceHostname, grpcPort)
-			httpAddr = fmt.Sprintf("%s:%d", i.config.consulServiceHostname, httpPort)
-		}
-	} else {
-		s.Update("Configuring the server context to use the static IP address from the Nomad allocation")
-
-		serverAddr, err := getAddrFromAllocID(allocID, client)
-		if err != nil {
-			return nil, err
-		}
-		hAddr, err := getHTTPFromAllocID(allocID, client)
-		if err != nil {
-			return nil, err
-		}
-
-		httpAddr = hAddr
-		addr.Addr = serverAddr
+	httpAddr, addr.Addr, err = i.getWaypointAddress(client, allocID)
+	if err != nil {
+		return nil, "", err
 	}
 
 	clicfg = clicontext.Config{
@@ -281,26 +273,71 @@ func (i *NomadInstaller) Install(
 	s.Update("Waypoint server ready")
 	s.Done()
 
-	if i.config.consulService {
-		s = sg.Add("The CLI has been configured to automatically install a Consul service for\n" +
+	if i.config.serviceProvider == "consul" && i.config.consulService {
+		opts.UI.Output("The CLI has been configured to automatically install a Consul service for\n" +
 			"the Waypoint service backend and ui service in Nomad.")
-		s.Done()
+	} else if i.config.serviceProvider == "nomad" {
+		opts.UI.Output("The CLI has been configured to automatically install a Nomad service for\n" +
+			"the Waypoint service backend and ui service in Nomad.")
 	} else {
-		s = sg.Add(
-			" Waypoint server running on Nomad is being accessed via its allocation IP and port.\n" +
-				"This could change in the future if Nomad creates a new allocation for the Waypoint server,\n" +
-				"which would break all existing Waypoint contexts.\n\n" +
-				"It is recommended to use Consul for determining Waypoint servers IP running on Nomad rather than\n" +
-				"relying on the static IP that is initially set up for this allocation.")
-		s.Status(terminal.StatusWarn)
-		s.Done()
+		opts.UI.Output("Waypoint server running on Nomad is being accessed via its allocation IP and port.\n" +
+			"This could change in the future if Nomad creates a new allocation for the Waypoint server,\n" +
+			"which would break all existing Waypoint contexts.\n\n" +
+			"It is recommended to use Consul for determining Waypoint servers IP running on Nomad rather than\n" +
+			"relying on the static IP that is initially set up for this allocation.")
 	}
 
 	return &InstallResults{
 		Context:       &clicfg,
 		AdvertiseAddr: &addr,
 		HTTPAddr:      httpAddr,
-	}, nil
+	}, "", nil
+}
+
+func (i *NomadInstaller) getWaypointAddress(client *api.Client, allocID string) (string, string, error) {
+	if i.config.serviceProvider == "consul" && i.config.consulService {
+		if i.config.consulDatacenter == "" {
+			i.config.consulDatacenter = defaultConsulDatacenter
+		}
+		if i.config.consulDomain == "" {
+			i.config.consulDomain = defaultConsulDomain
+		}
+
+		grpcPort, _ := strconv.Atoi(defaultGrpcPort)
+		httpPort, _ := strconv.Atoi(defaultHttpPort)
+
+		if i.config.consulServiceHostname == "" {
+			return fmt.Sprintf("%s.service.%s.%s:%d",
+					waypointUIServiceName, i.config.consulDatacenter, i.config.consulDomain, httpPort), fmt.Sprintf("%s.service.%s.%s:%d",
+					waypointBackendServiceName, i.config.consulDatacenter, i.config.consulDomain, grpcPort), nil
+		} else {
+			return fmt.Sprintf("%s:%d", i.config.consulServiceHostname, httpPort),
+				fmt.Sprintf("%s:%d", i.config.consulServiceHostname, grpcPort), nil
+		}
+	} else if i.config.serviceProvider == "nomad" {
+		backendService, _, err := client.Services().Get(waypointBackendServiceName, nil)
+		if err != nil {
+			return "", "", err
+		}
+
+		uiService, _, err := client.Services().Get(waypointUIServiceName, nil)
+		if err != nil {
+			return "", "", err
+		}
+
+		return fmt.Sprintf("%s:%d", uiService[0].Address, uiService[0].Port),
+			fmt.Sprintf("%s:%d", backendService[0].Address, backendService[0].Port), nil
+	} else {
+		serverAddr, err := getAddrFromAllocID(allocID, client)
+		if err != nil {
+			return "", "", err
+		}
+		hAddr, err := getHTTPFromAllocID(allocID, client)
+		if err != nil {
+			return "", "", err
+		}
+		return hAddr, serverAddr, nil
+	}
 }
 
 // Upgrade is a method of NomadInstaller and implements the Installer interface to
@@ -314,13 +351,26 @@ func (i *NomadInstaller) Upgrade(
 	sg := ui.StepGroup()
 	defer sg.Wait()
 
-	if !i.config.consulService {
+	if i.config.serviceProvider == "none" && !i.config.consulService {
 		// By default, we don't auto-enable the consul service because prior to Waypoint
 		// version 0.6.2, we did not enable it by default.
-		sw := sg.Add("Nomad Consul Service is disabled. If you had previously enabled " +
-			"it in the last installation, please stop this upgrade and re-run with -nomad-consul-service=true.")
-		sw.Status(terminal.StatusWarn)
-		sw.Done()
+		proceed, err := opts.UI.Input(&terminal.Input{
+			Prompt: "Service discovery is disabled for the Waypoint Nomad job. If you had previously enabled " +
+				"it in the last installation, please stop this upgrade and re-run with the -nomad-service-provider flag. " +
+				"Otherwise, enter 'yes' to continue the upgrade: ",
+			Style:  "",
+			Secret: false,
+		})
+		if err != nil {
+			opts.UI.Output(
+				"Error upgrading server: %s",
+				clierrors.Humanize(err),
+				terminal.WithErrorStyle(),
+			)
+			return nil, err
+		} else if strings.ToLower(proceed) != "yes" {
+			return nil, errors.New("upgrade aborted")
+		}
 	}
 
 	s := sg.Add("Initializing Nomad client...")
@@ -356,7 +406,7 @@ func (i *NomadInstaller) Upgrade(
 
 	if i.config.odrImage == "" {
 		var err error
-		i.config.odrImage, err = defaultODRImage(i.config.serverImage)
+		i.config.odrImage, err = installutil.DeriveDefaultODRImage(i.config.serverImage)
 		if err != nil {
 			return nil, err
 		}
@@ -397,7 +447,7 @@ func (i *NomadInstaller) Upgrade(
 	}
 
 	s = sg.Add("Upgrading Waypoint server on Nomad to %q", i.config.serverImage)
-	job := waypointNomadJob(i.config, opts.ServerRunFlags)
+	job := waypointNomadJob(i.config, opts.ServerRunFlags, true)
 	jobOpts := &api.RegisterOptions{
 		PolicyOverride: i.config.policyOverride,
 	}
@@ -472,41 +522,9 @@ func (i *NomadInstaller) Upgrade(
 	// than the direct static IP for the CLI context and server config. Otherwise
 	// if Nomad restarts the server allocation, a new IP will be assigned and any
 	// configured clients will be invalid
-	if i.config.consulService {
-		s.Update("Configuring the server context to use Consul DNS hostname")
-		if i.config.consulDatacenter == "" {
-			i.config.consulDatacenter = defaultConsulDatacenter
-		}
-		if i.config.consulDomain == "" {
-			i.config.consulDomain = defaultConsulDomain
-		}
-
-		grpcPort, _ := strconv.Atoi(defaultGrpcPort)
-		httpPort, _ := strconv.Atoi(defaultHttpPort)
-
-		if i.config.consulServiceHostname == "" {
-			addr.Addr = fmt.Sprintf("%s.service.%s.%s:%d",
-				waypointConsulBackendName, i.config.consulDatacenter, i.config.consulDomain, grpcPort)
-			httpAddr = fmt.Sprintf("%s.service.%s.%s:%d",
-				waypointConsulUIName, i.config.consulDatacenter, i.config.consulDomain, httpPort)
-		} else {
-			addr.Addr = fmt.Sprintf("%s:%d", i.config.consulServiceHostname, grpcPort)
-			httpAddr = fmt.Sprintf("%s:%d", i.config.consulServiceHostname, httpPort)
-		}
-	} else {
-		s.Update("Configuring the server context to use the static IP address from the Nomad allocation")
-
-		serverAddr, err := getAddrFromAllocID(allocID, client)
-		if err != nil {
-			return nil, err
-		}
-		hAddr, err := getHTTPFromAllocID(allocID, client)
-		if err != nil {
-			return nil, err
-		}
-
-		httpAddr = hAddr
-		addr.Addr = serverAddr
+	httpAddr, addr.Addr, err = i.getWaypointAddress(client, allocID)
+	if err != nil {
+		return nil, err
 	}
 
 	clicfg = clicontext.Config{
@@ -596,7 +614,7 @@ func (i *NomadInstaller) Uninstall(ctx context.Context, opts *InstallOpts) error
 		return err
 	}
 	for _, vol := range vols {
-		if vol.ID == "waypoint" {
+		if vol.ID == "waypoint-server" {
 			s.Update("Destroying persistent CSI volume")
 			err = client.CSIVolumes().Deregister(vol.ID, false, &api.WriteOptions{})
 			if err != nil {
@@ -614,101 +632,58 @@ func (i *NomadInstaller) Uninstall(ctx context.Context, opts *InstallOpts) error
 // InstallRunner implements Installer.
 func (i *NomadInstaller) InstallRunner(
 	ctx context.Context,
-	opts *InstallRunnerOpts,
+	opts *runnerinstall.InstallOpts,
 ) error {
-	ui := opts.UI
-
-	sg := ui.StepGroup()
-	defer sg.Wait()
-
-	s := sg.Add("Initializing Nomad client...")
-	defer func() { s.Abort() }()
-
-	// Build api client from environment
-	client, err := api.NewClient(api.DefaultConfig())
+	runnerInstaller := runnerinstall.NomadRunnerInstaller{
+		Config: runnerinstall.NomadConfig{
+			AuthSoftFail:          i.config.authSoftFail,
+			RunnerImage:           i.config.serverImage,
+			Namespace:             i.config.namespace,
+			ServiceAnnotations:    i.config.serviceAnnotations,
+			Region:                i.config.region,
+			Datacenters:           i.config.datacenters,
+			PolicyOverride:        i.config.policyOverride,
+			RunnerResourcesCPU:    i.config.runnerResourcesCPU,
+			RunnerResourcesMemory: i.config.runnerResourcesMemory,
+			HostVolume:            i.config.runnerHostVolume,
+			CsiVolumeProvider:     i.config.runnerCsiVolumeProvider,
+			CsiVolumeCapacityMin:  i.config.runnerCsiVolumeCapacityMin,
+			CsiVolumeCapacityMax:  i.config.runnerCsiVolumeCapacityMax,
+			CsiFS:                 i.config.csiFS,
+			CsiMountFlags:         i.config.csiMountFlags,
+			CsiTopologies:         i.config.csiTopologies,
+			CsiExternalId:         i.config.csiExternalId,
+			CsiParams:             i.config.csiParams,
+			CsiPluginId:           i.config.csiPluginId,
+			CsiSecrets:            i.config.csiSecrets,
+			CsiVolume:             i.config.runnerCsiVolume,
+			NomadHost:             i.config.nomadHost,
+		},
+	}
+	err := runnerInstaller.Install(ctx, opts)
 	if err != nil {
 		return err
 	}
-
-	// Install the runner
-	s.Update("Installing the Waypoint runner")
-	_, err = i.runJob(ctx, s, client, waypointRunnerNomadJob(i.config, opts))
-	if err != nil {
-		return err
-	}
-	s.Update("Waypoint runner installed")
-	s.Done()
-
 	return nil
 }
 
 // UninstallRunner implements Installer.
 func (i *NomadInstaller) UninstallRunner(
 	ctx context.Context,
-	opts *InstallOpts,
+	opts *runnerinstall.InstallOpts,
 ) error {
-	ui := opts.UI
 
-	sg := ui.StepGroup()
-	defer sg.Wait()
+	runnerInstaller := runnerinstall.NomadRunnerInstaller{
+		Config: runnerinstall.NomadConfig{
+			Namespace: i.config.namespace,
+			Region:    i.config.region,
+		},
+	}
 
-	s := sg.Add("Initializing Nomad client...")
-	defer func() { s.Abort() }()
-
-	// Build api client from environment
-	client, err := api.NewClient(api.DefaultConfig())
+	err := runnerInstaller.Uninstall(ctx, opts)
 	if err != nil {
 		return err
 	}
-
-	s.Update("Checking for existing Waypoint runner...")
-	jobs, _, err := client.Jobs().PrefixList(runnerName)
-	if err != nil {
-		return err
-	}
-	var detected bool
-	for _, j := range jobs {
-		if j.Name == runnerName {
-			detected = true
-			break
-		}
-	}
-	if !detected {
-		s.Update("No Waypoint runner detected.")
-		s.Done()
-		return nil
-	}
-
-	s.Update("Removing Waypoint runner...")
-	_, _, err = client.Jobs().Deregister(runnerName, true, &api.WriteOptions{})
-	if err != nil {
-		ui.Output(
-			"Error deregistering Waypoint runner job: %s", clierrors.Humanize(err),
-			terminal.WithErrorStyle(),
-		)
-		return err
-	}
-
-	allocs, _, err := client.Jobs().Allocations(serverName, true, nil)
-	if err != nil {
-		return err
-	}
-	for _, alloc := range allocs {
-		if alloc.DesiredStatus != "stop" {
-			a, _, err := client.Allocations().Info(alloc.ID, &api.QueryOptions{})
-			if err != nil {
-				return err
-			}
-			_, err = client.Allocations().Stop(a, &api.QueryOptions{})
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	s.Update("Waypoint runner job and allocations purged")
-	s.Done()
-
 	return nil
 }
 
@@ -722,13 +697,23 @@ func (i *NomadInstaller) HasRunner(
 	if err != nil {
 		return false, err
 	}
+	var jobs []*api.JobListStub
 
-	jobs, _, err := client.Jobs().PrefixList(runnerName)
+	// Check for runner with job name pre-0.9
+	jobsWithOldRunnerName, _, err := client.Jobs().PrefixList(runnerName)
 	if err != nil {
 		return false, err
 	}
+	jobs = append(jobs, jobsWithOldRunnerName...)
+
+	// Check for runner with job name post-0.9
+	jobWithNewRunnerName, _, err := client.Jobs().PrefixList(runnerJobName)
+	if err != nil {
+		return false, err
+	}
+	jobs = append(jobs, jobWithNewRunnerName...)
 	for _, j := range jobs {
-		if j.Name == runnerName {
+		if j.Name == runnerJobName || j.Name == runnerName {
 			return true, nil
 		}
 	}
@@ -841,9 +826,20 @@ func (i *NomadInstaller) waitForEvaluation(
 	}
 }
 
+func dockerNetworkMode(nomadNetworkMode string) string {
+	// if explicit network{mode="host"} then docker config needs network_mode="host"
+	// if network{} or network{mode="bridge"} then docker needs not to have anything
+	// default to empty.
+	switch nomadNetworkMode {
+	case "host":
+		return "host"
+	}
+	return ""
+}
+
 // waypointNomadJob takes in a nomadConfig and returns a Nomad Job per the
 // Nomad API
-func waypointNomadJob(c nomadConfig, rawRunFlags []string) *api.Job {
+func waypointNomadJob(c nomadConfig, rawRunFlags []string, upgrade bool) *api.Job {
 	job := api.NewServiceJob(serverName, serverName, c.region, 50)
 	job.Namespace = &c.namespace
 	job.Datacenters = c.datacenters
@@ -853,37 +849,87 @@ func waypointNomadJob(c nomadConfig, rawRunFlags []string) *api.Job {
 	grpcPort, _ := strconv.Atoi(defaultGrpcPort)
 	httpPort, _ := strconv.Atoi(defaultHttpPort)
 
-	// Include services to be registered in Consul. Currently configured to happen by default
+	// Include services to be registered. Currently configured to happen with Consul by default
 	// One service added for Waypoint UI, and one for Waypoint backend port
-	if c.consulService {
-		tg.Services = []*api.Service{
+	var services []*api.Service
+	if (c.serviceProvider == "consul" && (c.consulService || upgrade)) || (c.consulService && (c.serviceProvider == "consul" || upgrade)) {
+		token := ""
+		if c.consulToken == "" {
+			token = os.Getenv("CONSUL_HTTP_TOKEN")
+		} else {
+			token = c.consulToken
+		}
+		job.ConsulToken = &token
+
+		// if the user explicitly set tags with the Consul flags, we use those
+		// otherwise, use platform-agnostic tag flags (for backwards-compatibility)
+		uiTags := c.consulServiceUITags
+		if len(uiTags) == 0 {
+			uiTags = c.serviceUITags
+		}
+
+		backendTags := c.consulServiceBackendTags
+		if len(backendTags) == 0 {
+			backendTags = c.serviceUITags
+		}
+
+		services = []*api.Service{
 			{
-				Name:      waypointConsulUIName,
+				Name:      waypointUIServiceName,
+				Address:   c.serviceAddress,
 				PortLabel: "ui",
-				Tags:      c.consulServiceUITags,
+				Tags:      uiTags,
+				Provider:  "consul",
 			},
 			{
-				Name:      waypointConsulBackendName,
+				Name:      waypointBackendServiceName,
+				Address:   c.serviceAddress,
 				PortLabel: "server",
-				Tags:      c.consulServiceBackendTags,
+				Tags:      backendTags,
+				Provider:  "consul",
 			},
 		}
+	} else if c.serviceProvider == "nomad" {
+		services = []*api.Service{
+			{
+				Name:      waypointUIServiceName,
+				Address:   c.serviceAddress,
+				PortLabel: "ui",
+				Tags:      c.serviceUITags,
+				Provider:  "nomad",
+			},
+			{
+				Name:      waypointBackendServiceName,
+				Address:   c.serviceAddress,
+				PortLabel: "server",
+				Tags:      c.serviceBackendTags,
+				Provider:  "nomad",
+			},
+		}
+	}
+	tg.Services = services
+
+	hostNetwork := "default"
+	if c.hostNetwork != "" {
+		hostNetwork = c.hostNetwork
 	}
 
 	tg.Networks = []*api.NetworkResource{
 		{
-			Mode: "host",
+			Mode: c.networkMode,
 			// currently set to static; when ui command can be dynamic - update this
 			ReservedPorts: []api.Port{
 				{
-					Label: "ui",
-					Value: httpPort,
-					To:    httpPort,
+					Label:       "ui",
+					Value:       httpPort,
+					To:          httpPort,
+					HostNetwork: hostNetwork,
 				},
 				{
-					Label: "server",
-					To:    grpcPort,
-					Value: grpcPort,
+					Label:       "server",
+					To:          grpcPort,
+					Value:       grpcPort,
+					HostNetwork: hostNetwork,
 				},
 			},
 		},
@@ -894,7 +940,7 @@ func waypointNomadJob(c nomadConfig, rawRunFlags []string) *api.Job {
 
 	if c.csiVolumeProvider != "" {
 		volumeRequest.Type = "csi"
-		volumeRequest.Source = "waypoint"
+		volumeRequest.Source = "waypoint-server"
 		volumeRequest.AccessMode = "single-node-writer"
 		volumeRequest.AttachmentMode = "file-system"
 	} else {
@@ -921,29 +967,11 @@ func waypointNomadJob(c nomadConfig, rawRunFlags []string) *api.Job {
 	cpu := defaultResourcesCPU
 	mem := defaultResourcesMemory
 
-	preTask := api.NewTask("pre_task", "docker")
-	// Observed WP user and group IDs in the published container, update if those ever change
-	waypointUserID := 100
-	waypointGroupID := 1000
-	preTask.Config = map[string]interface{}{
-		// Doing this because this is the only way https://github.com/hashicorp/nomad/issues/8892
-		"image":   "busybox:latest",
-		"command": "sh",
-		"args":    []string{"-c", fmt.Sprintf("chown -R %d:%d /data/", waypointUserID, waypointGroupID)},
-	}
-	preTask.VolumeMounts = volumeMounts
-	preTask.Resources = &api.Resources{
-		CPU:      &cpu,
-		MemoryMB: &mem,
-	}
-	preTask.Lifecycle = &api.TaskLifecycle{
-		Hook:    "prestart",
-		Sidecar: false,
-	}
+	preTask := nomad.SetupPretask(volumeMounts)
 
 	tg.AddTask(preTask)
 
-	ras := []string{"server", "run", "-accept-tos", "-vv", "-db=/alloc/data/data.db", fmt.Sprintf("-listen-grpc=0.0.0.0:%s", defaultGrpcPort), fmt.Sprintf("-listen-http=0.0.0.0:%s", defaultHttpPort)}
+	ras := []string{"server", "run", "-accept-tos", "-vv", "-db=/data/data.db", fmt.Sprintf("-listen-grpc=0.0.0.0:%s", defaultGrpcPort), fmt.Sprintf("-listen-http=0.0.0.0:%s", defaultHttpPort)}
 	ras = append(ras, rawRunFlags...)
 	task := api.NewTask("server", "docker")
 	task.Config = map[string]interface{}{
@@ -951,6 +979,7 @@ func waypointNomadJob(c nomadConfig, rawRunFlags []string) *api.Job {
 		"ports":          []string{"server", "ui"},
 		"args":           ras,
 		"auth_soft_fail": c.authSoftFail,
+		"network_mode":   dockerNetworkMode(c.networkMode),
 	}
 	task.Env = map[string]string{
 		"PORT": defaultGrpcPort,
@@ -984,7 +1013,7 @@ func waypointRunnerNomadJob(c nomadConfig, opts *InstallRunnerOpts) *api.Job {
 	tg.Networks = []*api.NetworkResource{
 		{
 			// Host mode so we can communicate to our server.
-			Mode: "host",
+			Mode: c.networkMode,
 		},
 	}
 	job.AddTaskGroup(tg)
@@ -998,6 +1027,7 @@ func waypointRunnerNomadJob(c nomadConfig, opts *InstallRunnerOpts) *api.Job {
 			"-vv",
 		},
 		"auth_soft_fail": c.authSoftFail,
+		"network_mode":   dockerNetworkMode(c.networkMode),
 	}
 
 	cpu := defaultResourcesCPU
@@ -1150,6 +1180,21 @@ func (i *NomadInstaller) InstallFlags(set *flag.Set) {
 	})
 
 	set.StringVar(&flag.StringVar{
+		Name:    "nomad-network-mode",
+		Target:  &i.config.networkMode,
+		Usage:   "Nomad task group network mode.",
+		Default: "host",
+	})
+
+	set.StringVar(&flag.StringVar{
+		Name:   "nomad-host-network",
+		Target: &i.config.hostNetwork,
+		Usage: "Designates the host network name to use when allocating the" +
+			" ports of the Waypoint server.",
+		Default: "default",
+	})
+
+	set.StringVar(&flag.StringVar{
 		Name:   "nomad-odr-image",
 		Target: &i.config.odrImage,
 		Usage: "Docker image for the on-demand runners. If not specified, it " +
@@ -1185,6 +1230,12 @@ func (i *NomadInstaller) InstallFlags(set *flag.Set) {
 	})
 
 	set.StringVar(&flag.StringVar{
+		Name:   "nomad-service-address",
+		Target: &i.config.serviceAddress,
+		Usage:  "Address for the Nomad services.",
+	})
+
+	set.StringVar(&flag.StringVar{
 		Name:    "nomad-runner-cpu",
 		Target:  &i.config.runnerResourcesCPU,
 		Usage:   "CPU required to run this task in MHz.",
@@ -1199,17 +1250,72 @@ func (i *NomadInstaller) InstallFlags(set *flag.Set) {
 	})
 
 	set.StringVar(&flag.StringVar{
+		Name:   "nomad-runner-host-volume",
+		Target: &i.config.runnerHostVolume,
+		Usage:  "Name of the host volume to use for the Waypoint runner.",
+	})
+
+	set.StringVar(&flag.StringVar{
+		Name:   "nomad-runner-csi-volume-provider",
+		Target: &i.config.runnerCsiVolumeProvider,
+		Usage:  "Name of the CSI volume provider to use for the Waypoint runner.",
+	})
+
+	set.StringVar(&flag.StringVar{
+		Name:   "nomad-runner-csi-volume",
+		Target: &i.config.runnerCsiVolume,
+		Usage:  "The name of the volume to initialize for the Waypoint runner within the CSI provider.",
+	})
+
+	// TODO: Update default values for runner - less space is needed for runner compared to server
+	set.Int64Var(&flag.Int64Var{
+		Name:    "nomad-runner-csi-volume-capacity-min",
+		Target:  &i.config.runnerCsiVolumeCapacityMin,
+		Usage:   "Waypoint runner Nomad CSI volume capacity minimum, in bytes.",
+		Default: defaultCSIVolumeCapacityMin,
+	})
+
+	set.Int64Var(&flag.Int64Var{
+		Name:    "nomad-runner-csi-volume-capacity-max",
+		Target:  &i.config.runnerCsiVolumeCapacityMax,
+		Usage:   "Waypoint runner Nomad CSI volume capacity maximum, in bytes.",
+		Default: defaultCSIVolumeCapacityMax,
+	})
+
+	set.StringVar(&flag.StringVar{
 		Name:    "nomad-server-image",
 		Target:  &i.config.serverImage,
 		Usage:   "Docker image for the Waypoint server.",
-		Default: defaultServerImage,
+		Default: installutil.DefaultServerImage,
+	})
+
+	set.EnumSingleVar(&flag.EnumSingleVar{
+		Name:    "nomad-service-provider",
+		Target:  &i.config.serviceProvider,
+		Usage:   "Create service for Waypoint UI and Server in Consul.",
+		Values:  []string{"consul", "nomad", "none"},
+		Default: "consul", //default to consul for fresh installs
+	})
+
+	set.StringSliceVar(&flag.StringSliceVar{
+		Name:    "nomad-service-ui-tags",
+		Target:  &i.config.serviceUITags,
+		Usage:   "Tags for the Waypoint UI service.",
+		Default: []string{defaultServiceTag},
+	})
+
+	set.StringSliceVar(&flag.StringSliceVar{
+		Name:    "nomad-service-backend-tags",
+		Target:  &i.config.serviceBackendTags,
+		Usage:   "Tags for the Waypoint backend service.",
+		Default: []string{defaultServiceTag},
 	})
 
 	set.BoolVar(&flag.BoolVar{
 		Name:    "nomad-consul-service",
 		Target:  &i.config.consulService,
 		Usage:   "Create service for Waypoint UI and Server in Consul.",
-		Default: true, // default to true for fresh installs
+		Default: true, //default to true for fresh installs
 	})
 
 	set.StringVar(&flag.StringVar{
@@ -1221,10 +1327,9 @@ func (i *NomadInstaller) InstallFlags(set *flag.Set) {
 	})
 
 	set.StringSliceVar(&flag.StringSliceVar{
-		Name:    "nomad-consul-service-ui-tags",
-		Target:  &i.config.consulServiceUITags,
-		Usage:   "Tags for the Waypoint UI service generated in Consul.",
-		Default: []string{defaultConsulServiceTag},
+		Name:   "nomad-consul-service-ui-tags",
+		Target: &i.config.consulServiceUITags,
+		Usage:  "Tags for the Waypoint UI service generated in Consul.",
 	})
 
 	set.StringSliceVar(&flag.StringSliceVar{
@@ -1232,7 +1337,6 @@ func (i *NomadInstaller) InstallFlags(set *flag.Set) {
 		Target: &i.config.consulServiceBackendTags,
 		Usage: "Tags for the Waypoint backend service generated in Consul. The 'first' tag " +
 			"will be used when crafting the Consul DNS hostname for accessing Waypoint.",
-		Default: []string{defaultConsulServiceTag},
 	})
 
 	set.StringVar(&flag.StringVar{
@@ -1250,9 +1354,17 @@ func (i *NomadInstaller) InstallFlags(set *flag.Set) {
 	})
 
 	set.StringVar(&flag.StringVar{
+		Name:   "nomad-consul-token",
+		Target: &i.config.consulToken,
+		Usage: "If set, the passed Consul token is stored in the job " +
+			"before sending to the Nomad servers. Overrides the CONSUL_HTTP_TOKEN " +
+			"environment variable if set.",
+	})
+
+	set.StringVar(&flag.StringVar{
 		Name:   "nomad-host-volume",
 		Target: &i.config.hostVolume,
-		Usage:  "Nomad host volume name, required for volume type 'host'.",
+		Usage:  "Nomad host volume name to use for the Waypoint server, required for volume type 'host'.",
 	})
 
 	set.StringVar(&flag.StringVar{
@@ -1280,6 +1392,50 @@ func (i *NomadInstaller) InstallFlags(set *flag.Set) {
 		Target:  &i.config.csiFS,
 		Usage:   "Nomad CSI volume mount option file system.",
 		Default: defaultCSIVolumeMountFS,
+	})
+
+	set.StringSliceVar(&flag.StringSliceVar{
+		Name:    "nomad-csi-mount-flags",
+		Target:  &i.config.csiMountFlags,
+		Usage:   "Nomad CSI volume mount option flags.",
+		Default: []string{"noatime"},
+	})
+
+	set.StringMapVar(&flag.StringMapVar{
+		Name:   "nomad-csi-secrets",
+		Target: &i.config.csiSecrets,
+		Usage:  "Secrets to provide for the CSI volume.",
+	})
+
+	set.StringMapVar(&flag.StringMapVar{
+		Name:   "nomad-csi-parameters",
+		Target: &i.config.csiParams,
+		Usage:  "Parameters passed directly to the CSI plugin to configure the volume.",
+	})
+
+	set.StringVar(&flag.StringVar{
+		Name:   "nomad-csi-plugin-id",
+		Target: &i.config.csiPluginId,
+		Usage:  "The ID of the CSI plugin that manages the volume, required for volume type 'csi'.",
+	})
+
+	set.StringVar(&flag.StringVar{
+		Name:   "nomad-csi-external-id",
+		Target: &i.config.csiExternalId,
+		Usage:  "The ID of the physical volume from the Nomad storage provider.",
+	})
+
+	set.StringMapVar(&flag.StringMapVar{
+		Name:   "nomad-csi-topologies",
+		Target: &i.config.csiTopologies,
+		Usage:  "Locations from which the Nomad Volume will be accessible.",
+	})
+
+	set.StringVar(&flag.StringVar{
+		Name:    "nomad-csi-volume",
+		Target:  &i.config.csiVolume,
+		Usage:   "The name of the volume to initialize for Waypoint server within the CSI provider.",
+		Default: "waypoint-server",
 	})
 }
 
@@ -1320,6 +1476,21 @@ func (i *NomadInstaller) UpgradeFlags(set *flag.Set) {
 	})
 
 	set.StringVar(&flag.StringVar{
+		Name:    "nomad-network-mode",
+		Target:  &i.config.networkMode,
+		Usage:   "Nomad task group network mode.",
+		Default: "host",
+	})
+
+	set.StringVar(&flag.StringVar{
+		Name:   "nomad-host-network",
+		Target: &i.config.hostNetwork,
+		Usage: "Designates the host network name to use when allocating the" +
+			" ports of the Waypoint server.",
+		Default: "default",
+	})
+
+	set.StringVar(&flag.StringVar{
 		Name:   "nomad-odr-image",
 		Target: &i.config.odrImage,
 		Usage: "Docker image for the on-demand runners. If not specified, it " +
@@ -1355,6 +1526,12 @@ func (i *NomadInstaller) UpgradeFlags(set *flag.Set) {
 	})
 
 	set.StringVar(&flag.StringVar{
+		Name:   "nomad-service-address",
+		Target: &i.config.serviceAddress,
+		Usage:  "Address for the Nomad services.",
+	})
+
+	set.StringVar(&flag.StringVar{
 		Name:    "nomad-runner-cpu",
 		Target:  &i.config.runnerResourcesCPU,
 		Usage:   "CPU required to run this task in MHz.",
@@ -1369,16 +1546,71 @@ func (i *NomadInstaller) UpgradeFlags(set *flag.Set) {
 	})
 
 	set.StringVar(&flag.StringVar{
+		Name:   "nomad-runner-host-volume",
+		Target: &i.config.runnerHostVolume,
+		Usage:  "Name of the host volume to use for the Waypoint runner.",
+	})
+
+	set.StringVar(&flag.StringVar{
+		Name:   "nomad-runner-csi-volume-provider",
+		Target: &i.config.runnerCsiVolumeProvider,
+		Usage:  "Name of the CSI volume provider to use for the Waypoint runner.",
+	})
+
+	set.StringVar(&flag.StringVar{
+		Name:   "nomad-runner-csi-volume",
+		Target: &i.config.runnerCsiVolume,
+		Usage:  "The name of the volume to initialize for the Waypoint runner within the CSI provider.",
+	})
+
+	// TODO: Update default values for runner - less space is needed for runner compared to server
+	set.Int64Var(&flag.Int64Var{
+		Name:    "nomad-runner-csi-volume-capacity-min",
+		Target:  &i.config.runnerCsiVolumeCapacityMin,
+		Usage:   "Waypoint runner Nomad CSI volume capacity minimum, in bytes.",
+		Default: defaultCSIVolumeCapacityMin,
+	})
+
+	set.Int64Var(&flag.Int64Var{
+		Name:    "nomad-runner-csi-volume-capacity-max",
+		Target:  &i.config.runnerCsiVolumeCapacityMax,
+		Usage:   "Waypoint runner Nomad CSI volume capacity maximum, in bytes.",
+		Default: defaultCSIVolumeCapacityMax,
+	})
+
+	set.StringVar(&flag.StringVar{
 		Name:    "nomad-server-image",
 		Target:  &i.config.serverImage,
 		Usage:   "Docker image for the Waypoint server.",
-		Default: defaultServerImage,
+		Default: installutil.DefaultServerImage,
 	})
 
 	set.StringVar(&flag.StringVar{
 		Name:   "nomad-host-volume",
 		Target: &i.config.hostVolume,
 		Usage:  "Nomad host volume name.",
+	})
+
+	set.EnumSingleVar(&flag.EnumSingleVar{
+		Name:    "nomad-service-provider",
+		Target:  &i.config.serviceProvider,
+		Usage:   "Create service for Waypoint UI and Server.",
+		Values:  []string{"consul", "nomad", "none"},
+		Default: "none", // default none on upgrades, make sure people opt-in to service discovery
+	})
+
+	set.StringSliceVar(&flag.StringSliceVar{
+		Name:    "nomad-service-ui-tags",
+		Target:  &i.config.serviceUITags,
+		Usage:   "Tags for the Waypoint UI service.",
+		Default: []string{defaultServiceTag},
+	})
+
+	set.StringSliceVar(&flag.StringSliceVar{
+		Name:    "nomad-service-backend-tags",
+		Target:  &i.config.serviceBackendTags,
+		Usage:   "Tags for the Waypoint backend service.",
+		Default: []string{defaultServiceTag},
 	})
 
 	set.BoolVar(&flag.BoolVar{
@@ -1397,10 +1629,9 @@ func (i *NomadInstaller) UpgradeFlags(set *flag.Set) {
 	})
 
 	set.StringSliceVar(&flag.StringSliceVar{
-		Name:    "nomad-consul-service-ui-tags",
-		Target:  &i.config.consulServiceUITags,
-		Usage:   "Tags for the Waypoint UI service generated in Consul.",
-		Default: []string{defaultConsulServiceTag},
+		Name:   "nomad-consul-service-ui-tags",
+		Target: &i.config.consulServiceUITags,
+		Usage:  "Tags for the Waypoint UI service generated in Consul.",
 	})
 
 	set.StringSliceVar(&flag.StringSliceVar{
@@ -1408,7 +1639,6 @@ func (i *NomadInstaller) UpgradeFlags(set *flag.Set) {
 		Target: &i.config.consulServiceBackendTags,
 		Usage: "Tags for the Waypoint backend service generated in Consul. The 'first' tag " +
 			"will be used when crafting the Consul DNS hostname for accessing Waypoint.",
-		Default: []string{defaultConsulServiceTag},
 	})
 
 	set.StringVar(&flag.StringVar{

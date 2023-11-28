@@ -1,13 +1,23 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package core
 
 import (
 	"context"
 	"fmt"
+	"reflect"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes/any"
+	"github.com/hashicorp/go-argmapper"
+	"github.com/mitchellh/mapstructure"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/opaqueany"
+	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/hashicorp/waypoint-plugin-sdk/component"
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
@@ -113,11 +123,49 @@ func (a *App) destroyDeploy(
 	}
 	defer c.Close()
 
-	_, _, err = a.doOperation(ctx, a.logger.Named("deploy"), &deployDestroyOperation{
+	_, destroyment, err := a.doOperation(ctx, a.logger.Named("deploy"), &deployDestroyOperation{
 		Component:  c,
 		Deployment: d,
 	})
-	return err
+
+	if err != nil {
+		return err
+	}
+	if destroyment == nil {
+		a.UI.Output("The destroy deployment operation returned nothing, cannot "+
+			"determine what old resources were destroyed or left behind", terminal.WithWarningStyle())
+		return nil
+	}
+
+	destroyProto, ok := destroyment.(*pb.Deployment)
+	if !ok {
+		a.UI.Output("Failed to convert operation to a Deployment proto message, "+
+			"cannot detail which resources were destroyed or left around. The deployment "+
+			"message is of type %T. "+
+			"Please report this issue if it persists. Waypoint will continue on...",
+			reflect.TypeOf(destroyment),
+			terminal.WithErrorStyle())
+		return nil
+	}
+
+	var message string
+	if len(destroyProto.DeclaredResources) > 0 {
+		message = message + fmt.Sprintf("These resources were not destroyed for app %q:\n", a.ref.Application)
+		for _, resource := range destroyProto.DeclaredResources {
+			message = message + "- " + resource.Name + "\n"
+		}
+		a.UI.Output(message, terminal.WithWarningStyle())
+		message = ""
+		if len(destroyProto.DestroyedResources) > 0 {
+			message = message + fmt.Sprintf("These resources were destroyed for app %q:\n", a.ref.Application)
+			for _, resource := range destroyProto.DestroyedResources {
+				message = message + "- " + resource.Name + "\n"
+			}
+			a.UI.Output(message, terminal.WithSuccessStyle())
+		}
+	}
+
+	return nil
 }
 
 // destroyDeployWorkspace will call the DestroyWorkspace hook if there
@@ -222,13 +270,18 @@ func (op *deployDestroyOperation) Upsert(
 		Deployment: d,
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed upserting deployment destroy operation")
 	}
 
 	return resp.Deployment, nil
 }
 
-func (op *deployDestroyOperation) Do(ctx context.Context, log hclog.Logger, app *App, _ proto.Message) (interface{}, error) {
+func (op *deployDestroyOperation) Do(ctx context.Context, log hclog.Logger, app *App, msg proto.Message) (interface{}, error) {
+	destroy, ok := msg.(*pb.Deployment)
+	if !ok {
+		return nil, errors.New("failed to cast deploy destroy operation proto to a Deployment")
+	}
+
 	destroyer, ok := op.Component.Value.(component.Destroyer)
 	if !ok || destroyer.DestroyFunc() == nil {
 		return nil, nil
@@ -239,20 +292,56 @@ func (op *deployDestroyOperation) Do(ctx context.Context, log hclog.Logger, app 
 		return nil, nil // Fail silently for now, this will be fixed in v0.2
 	}
 
-	return app.callDynamicFunc(ctx,
+	declaredResourcesResp := &component.DeclaredResourcesResp{}
+	destroyedResourcesResp := &component.DestroyedResourcesResp{}
+
+	// We don't need the result, we just need the declared and destroyed resources
+	// which we can access without the result since they were passed by reference
+	_, err := app.callDynamicFunc(ctx,
 		log,
 		nil,
 		op.Component,
 		destroyer.DestroyFunc(),
 		plugin.ArgNamedAny("deployment", op.Deployment.Deployment),
+		argmapper.Typed(declaredResourcesResp),
+		argmapper.Typed(destroyedResourcesResp),
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	declaredResources := make([]*pb.DeclaredResource, len(declaredResourcesResp.DeclaredResources))
+	if len(declaredResourcesResp.DeclaredResources) > 0 {
+		for i, pluginDeclaredResource := range declaredResourcesResp.DeclaredResources {
+			var serverDeclaredResource pb.DeclaredResource
+			if err := mapstructure.Decode(pluginDeclaredResource, &serverDeclaredResource); err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to decode plugin declared resource named %q: %s", pluginDeclaredResource.Name, err)
+			}
+			declaredResources[i] = &serverDeclaredResource
+		}
+	}
+	destroy.DeclaredResources = declaredResources
+
+	destroyedResources := make([]*pb.DestroyedResource, len(destroyedResourcesResp.DestroyedResources))
+	if len(destroyedResourcesResp.DestroyedResources) > 0 {
+		for i, pluginDestroyedResource := range destroyedResourcesResp.DestroyedResources {
+			var serverDestroyedResource pb.DestroyedResource
+			if err := mapstructure.Decode(pluginDestroyedResource, &serverDestroyedResource); err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to decode plugin declared resource named %q: %s", pluginDestroyedResource.Name, err)
+			}
+			destroyedResources[i] = &serverDestroyedResource
+		}
+	}
+	destroy.DestroyedResources = destroyedResources
+
+	return nil, err
 }
 
 func (op *deployDestroyOperation) StatusPtr(msg proto.Message) **pb.Status {
 	return nil
 }
 
-func (op *deployDestroyOperation) ValuePtr(msg proto.Message) (**any.Any, *string) {
+func (op *deployDestroyOperation) ValuePtr(msg proto.Message) (**opaqueany.Any, *string) {
 	return nil, nil
 }
 

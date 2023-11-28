@@ -1,9 +1,13 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
 	"context"
+	"strings"
 
-	"github.com/golang/protobuf/ptypes/empty"
+	empty "google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
 	clientpkg "github.com/hashicorp/waypoint/internal/client"
@@ -30,8 +34,21 @@ func (c *DestroyCommand) Run(args []string) int {
 
 	err := c.DoApp(c.Ctx, func(ctx context.Context, app *clientpkg.App) error {
 		if !c.confirm {
-			app.UI.Output("Destroying app %q requires confirmation with `-auto-approve`.", app.Ref().GetApplication(), terminal.WithWarningStyle())
-			return nil
+			proceed, err := c.ui.Input(&terminal.Input{
+				Prompt: "Do you really want to destroy all resources for this app? Only 'yes' will be accepted to approve: ",
+				Style:  "",
+				Secret: false,
+			})
+			if err != nil {
+				c.ui.Output(
+					"Error destroying resources: %s",
+					clierrors.Humanize(err),
+					terminal.WithErrorStyle(),
+				)
+			} else if strings.ToLower(proceed) != "yes" {
+				app.UI.Output("Destroying app %q requires confirmation.", app.Ref().GetApplication(), terminal.WithWarningStyle())
+				return nil
+			}
 		}
 
 		if err := app.Destroy(ctx, &pb.Job_DestroyOp{
@@ -64,7 +81,7 @@ func (c *DestroyCommand) Flags() *flag.Sets {
 			Name:    "auto-approve",
 			Target:  &c.confirm,
 			Default: false,
-			Usage:   "Confirm destroying all resources.",
+			Usage:   "Auto-approve destroying all resources. If unset, confirmation will be requested.",
 		})
 	})
 }
@@ -77,17 +94,19 @@ func (c *DestroyCommand) Help() string {
 	return formatHelp(`
 Usage: waypoint destroy [options]
 
-  Delete all resources created for an app or project in the current workspace.
+  Delete all resources created for all apps or project in the current workspace.
+  Specify the -app to select a given app to delete resources for in a given 
+  workspace.
 
   The workspace can continue to be used after this call, this just deletes
-  all the resources created for this app up to this point.
+  all the resources created for all apps in the workspace up to this point.
 
   This functionality must be supported by the plugins in use and is dependent
   on their behavior. The expected behavior is that any physical resources created
   as part of deploys and releases are destroyed. For example, any load balancers,
   VMs, containers, etc.
 
-  This targets one app in one workspace. You must call this for each workspace
+  This targets apps in one workspace. You must call this for each workspace
   you've used if you want to destroy everything.
 
 ` + c.Flags().Help())

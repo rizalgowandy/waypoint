@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 // Package clisnapshot provides access for our CLI commands to create and
 // restore snapshots
 package clisnapshot

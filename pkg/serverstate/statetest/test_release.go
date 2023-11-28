@@ -1,6 +1,10 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package statetest
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -19,6 +23,7 @@ func init() {
 }
 
 func TestRelease(t *testing.T, factory Factory, restartF RestartFactory) {
+	ctx := context.Background()
 	t.Run("CRUD operations", func(t *testing.T) {
 		require := require.New(t)
 
@@ -27,13 +32,13 @@ func TestRelease(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		// Write project
 		ref := &pb.Ref_Project{Project: "foo"}
-		require.NoError(s.ProjectPut(serverptypes.TestProject(t, &pb.Project{
+		require.NoError(s.ProjectPut(ctx, serverptypes.TestProject(t, &pb.Project{
 			Name: ref.Project,
 		})))
 
 		// Has no apps
 		{
-			resp, err := s.ProjectGet(ref)
+			resp, err := s.ProjectGet(ctx, ref)
 			require.NoError(err)
 			require.NotNil(resp)
 			require.Empty(resp.Applications)
@@ -49,7 +54,7 @@ func TestRelease(t *testing.T, factory Factory, restartF RestartFactory) {
 		}
 
 		// Add
-		err := s.ReleasePut(false, serverptypes.TestRelease(t, &pb.Release{
+		err := s.ReleasePut(ctx, false, serverptypes.TestRelease(t, &pb.Release{
 			Id:          "d1",
 			Application: app,
 			Workspace:   ws,
@@ -62,7 +67,7 @@ func TestRelease(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		// Can read
 		{
-			resp, err := s.ReleaseGet(&pb.Ref_Operation{
+			resp, err := s.ReleaseGet(ctx, &pb.Ref_Operation{
 				Target: &pb.Ref_Operation_Id{
 					Id: "d1",
 				},
@@ -73,14 +78,14 @@ func TestRelease(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		// Can read latest
 		{
-			resp, err := s.ReleaseLatest(app, &pb.Ref_Workspace{Workspace: "default"})
+			resp, err := s.ReleaseLatest(ctx, app, &pb.Ref_Workspace{Workspace: "default"})
 			require.NoError(err)
 			require.NotNil(resp)
 		}
 
 		// Update
 		ts := timestamppb.Now()
-		err = s.ReleasePut(true, serverptypes.TestRelease(t, &pb.Release{
+		err = s.ReleasePut(ctx, true, serverptypes.TestRelease(t, &pb.Release{
 			Id:          "d1",
 			Application: app,
 			Workspace:   ws,
@@ -93,7 +98,7 @@ func TestRelease(t *testing.T, factory Factory, restartF RestartFactory) {
 		require.NoError(err)
 
 		{
-			resp, err := s.ReleaseGet(&pb.Ref_Operation{
+			resp, err := s.ReleaseGet(ctx, &pb.Ref_Operation{
 				Target: &pb.Ref_Operation_Id{
 					Id: "d1",
 				},
@@ -104,12 +109,11 @@ func TestRelease(t *testing.T, factory Factory, restartF RestartFactory) {
 			require.Equal(ts.AsTime(), resp.Status.CompleteTime.AsTime())
 		}
 
-		// Add another and see Latset change
-		// Add
-		err = s.ReleasePut(false, serverptypes.TestRelease(t, &pb.Release{
+		// Add another in another workspace, and see Latest change
+		err = s.ReleasePut(ctx, false, serverptypes.TestRelease(t, &pb.Release{
 			Id:          "d2",
 			Application: app,
-			Workspace:   ws,
+			Workspace:   &pb.Ref_Workspace{Workspace: "non-default"},
 			Status: &pb.Status{
 				State:        pb.Status_SUCCESS,
 				StartTime:    timestamppb.New(ts.AsTime().Add(time.Second)),
@@ -118,15 +122,27 @@ func TestRelease(t *testing.T, factory Factory, restartF RestartFactory) {
 		}))
 		require.NoError(err)
 
+		// Get by workspace
 		{
-			resp, err := s.ReleaseLatest(app, &pb.Ref_Workspace{Workspace: "default"})
+			resp, err := s.ReleaseLatest(ctx, app, &pb.Ref_Workspace{Workspace: "non-default"})
 			require.NoError(err)
 			require.NotNil(resp)
 			require.Equal("d2", resp.Id)
 		}
 
+		// Get with no workspace
 		{
-			resp, err := s.ReleaseList(app)
+			resp, err := s.ReleaseLatest(ctx, app, nil)
+			require.NoError(err)
+			require.NotNil(resp)
+			require.Equal("d2", resp.Id)
+		}
+
+		// Add another release in another workspace, and ensure
+		// ReleaseLatest (with no workspace filter) returns the latest one.
+
+		{
+			resp, err := s.ReleaseList(ctx, app)
 			require.NoError(err)
 
 			require.Len(resp, 2)
@@ -149,7 +165,7 @@ func TestRelease(t *testing.T, factory Factory, restartF RestartFactory) {
 		*/
 
 		{
-			resp, err := s.ReleaseList(app, serverstate.ListWithOrder(&pb.OperationOrder{
+			resp, err := s.ReleaseList(ctx, app, serverstate.ListWithOrder(&pb.OperationOrder{
 				Order: pb.OperationOrder_START_TIME,
 				Desc:  true,
 				Limit: 1,
@@ -161,7 +177,7 @@ func TestRelease(t *testing.T, factory Factory, restartF RestartFactory) {
 			require.Equal("d2", resp[0].Id)
 		}
 
-		err = s.ReleasePut(false, serverptypes.TestRelease(t, &pb.Release{
+		err = s.ReleasePut(ctx, false, serverptypes.TestRelease(t, &pb.Release{
 			Id:          "d3",
 			Application: app,
 			Workspace:   ws,
@@ -173,14 +189,14 @@ func TestRelease(t *testing.T, factory Factory, restartF RestartFactory) {
 		require.NoError(err)
 
 		{
-			resp, err := s.ReleaseList(app)
+			resp, err := s.ReleaseList(ctx, app)
 			require.NoError(err)
 
 			require.Len(resp, 3)
 		}
 
 		{
-			resp, err := s.ReleaseList(app,
+			resp, err := s.ReleaseList(ctx, app,
 				serverstate.ListWithOrder(&pb.OperationOrder{
 					Order: pb.OperationOrder_START_TIME,
 					Desc:  true,
@@ -201,8 +217,9 @@ func TestRelease(t *testing.T, factory Factory, restartF RestartFactory) {
 
 			require.Equal("d3", resp[0].Id)
 		}
+
 		{
-			resp, err := s.ReleaseList(app,
+			resp, err := s.ReleaseList(ctx, app,
 				serverstate.ListWithOrder(&pb.OperationOrder{
 					Order: pb.OperationOrder_START_TIME,
 					Desc:  true,

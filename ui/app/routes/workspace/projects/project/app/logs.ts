@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import Route from '@ember/routing/route';
 import { inject as service } from '@ember/service';
 import ApiService from 'waypoint/services/api';
@@ -19,12 +24,10 @@ export default class Logs extends Route {
     return [
       {
         label: model.app ?? 'unknown',
-        icon: 'git-repo',
         route: 'workspace.projects.project.app',
       },
       {
         label: 'Logs',
-        icon: 'outline',
         route: 'workspace.projects.project.app.logs',
       },
     ];

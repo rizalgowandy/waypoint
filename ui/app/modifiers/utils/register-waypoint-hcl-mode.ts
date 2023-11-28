@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import codemirror from 'codemirror';
 import 'codemirror/addon/mode/simple';
 

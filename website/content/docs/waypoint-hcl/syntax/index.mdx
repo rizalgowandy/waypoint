@@ -5,6 +5,12 @@ description: |-
   This page describes the syntax of the `waypoint.hcl` configuration language. The waypoint.hcl file uses either HCL or JSON, allowing both human and machine friendly formats. The recommended and typical format is HCL.
 ---
 
+<Warning>
+
+This content is part of the legacy version of Waypoint that is no longer actively maintained. For additional information on the new vision of Waypoint, check out [this blog post](https://www.hashicorp.com/blog/a-new-vision-for-hcp-waypoint) and the [HCP Waypoint documentation](/hcp/docs/waypoint).
+
+</Warning>
+
 # Configuration Syntax
 
 This page describes the syntax of the `waypoint.hcl` configuration language.
@@ -36,7 +42,7 @@ after the equals sign is the parameter's value.
 
 The context where the parameter appears determines what names and value types
 are valid. Parameter values can also be built up using
-[expressions](/docs/configuration/expressions/index.html) which allow the value to
+[expressions](/waypoint/docs/waypoint-hcl/syntax/expressions) which allow the value to
 either be specified literally or generated from other values programmatically.
 
 ### Stanzas
@@ -46,7 +52,7 @@ A _stanza_ is a container for other configuration content:
 ```hcl
 app "web" {
   build {
-    use "docker {
+    use "docker" {
       dockerfile = "${path.app}/Dockerfile"
     }
   }
@@ -69,7 +75,7 @@ and stanzas may be nested, creating a hierarchy of stanzas and their associated
 parameters.
 
 All of the stanza types that Waypoint supports are listed in the documentation
-sidebar to the left. The documentation uses [placement tables](/docs/waypoint-hcl#placement-tables)
+sidebar to the left. The documentation uses [placement tables](/waypoint/docs/waypoint-hcl#placement-tables)
 to document the context in which stanzas are valid.
 
 ## Comments

@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package assets
 
 // CEBArch contains the asset name by architecture. The OS is always

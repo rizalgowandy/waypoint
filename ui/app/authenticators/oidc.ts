@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import OAuth2ImplicitGrantAuthenticator, {
   parseResponse as ESAparseResponse,
 } from 'ember-simple-auth/authenticators/oauth2-implicit-grant';

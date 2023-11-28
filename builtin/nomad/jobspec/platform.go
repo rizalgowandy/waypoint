@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package jobspec
 
 import (
@@ -10,15 +13,15 @@ import (
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/api"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/hashicorp/waypoint-plugin-sdk/component"
 	"github.com/hashicorp/waypoint-plugin-sdk/docs"
 	"github.com/hashicorp/waypoint-plugin-sdk/framework/resource"
 	sdk "github.com/hashicorp/waypoint-plugin-sdk/proto/gen"
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
-
 	"github.com/hashicorp/waypoint/builtin/docker"
 	"github.com/hashicorp/waypoint/builtin/nomad"
 )
@@ -76,20 +79,18 @@ func (p *Platform) resourceManager(log hclog.Logger, dcr *component.DeclaredReso
 
 // getNomadJobspecClient is a value provider for our resource manager and provides
 // the client connection used by resources to interact with Nomad.
-func (p *Platform) getNomadClient() (*nomadClient, error) {
+func (p *Platform) getNomadClient() (*api.Client, error) {
 	// Get our client
 	client, err := api.NewClient(api.DefaultConfig())
 	if err != nil {
 		return nil, err
 	}
-	return &nomadClient{
-		NomadClient: client,
-	}, nil
+	return client, nil
 }
 
 func (p *Platform) resourceJobCreate(
 	ctx context.Context,
-	client *nomadClient,
+	client *api.Client,
 	result *Deployment,
 	deployConfig *component.DeploymentConfig,
 	img *docker.Image,
@@ -98,11 +99,11 @@ func (p *Platform) resourceJobCreate(
 ) error {
 	st := ui.Status()
 	defer st.Close()
-	jobclient := client.NomadClient.Jobs()
+	jobclient := client.Jobs()
 
 	// Parse the HCL
 	st.Update("Parsing the job specification...")
-	job, err := p.jobspec(client.NomadClient, p.config.Jobspec)
+	job, err := p.jobspec(client, p.config.Jobspec, p.config.Hcl1)
 	if err != nil {
 		return err
 	}
@@ -114,7 +115,19 @@ func (p *Platform) resourceJobCreate(
 	job.SetMeta(metaId, result.Id)
 
 	// Update our client to use the Namespace set in the jobspec
-	client.NomadClient.SetNamespace(*job.Namespace)
+	client.SetNamespace(*job.Namespace)
+
+	// Get Consul ACL token from environment
+	*job.ConsulToken, err = nomad.ConsulAuth()
+	if err != nil {
+		return err
+	}
+
+	// Get Vault token from environment
+	*job.VaultToken, err = nomad.VaultAuth()
+	if err != nil {
+		return err
+	}
 
 	// Register job
 	st.Update("Registering job " + *job.Name + "...")
@@ -127,11 +140,14 @@ func (p *Platform) resourceJobCreate(
 	state.Name = result.Name
 	st.Step(terminal.StatusOK, "Job registration successful")
 
-	// Wait on the allocation
+	// Wait on the allocation. Periodic Nomad jobs will not get an evaluation,
+	// so we don't monitor an evaluation if we don't have one.
 	evalID := regResult.EvalID
-	st.Update("Monitoring evaluation " + evalID)
-	if err := nomad.NewMonitor(st, client.NomadClient).Monitor(evalID); err != nil {
-		return err
+	if evalID != "" {
+		st.Update("Monitoring evaluation " + evalID)
+		if err := nomad.NewMonitor(st, client).Monitor(evalID); err != nil {
+			return err
+		}
 	}
 	st.Step(terminal.StatusOK, "Deployment successfully rolled out!")
 
@@ -142,13 +158,13 @@ func (p *Platform) resourceJobDestroy(
 	ctx context.Context,
 	state *Resource_Job,
 	sg terminal.StepGroup,
-	client *nomadClient,
+	client *api.Client,
 ) error {
 	step := sg.Add("")
 	defer func() { step.Abort() }()
 	step.Update("Deleting job: %s", state.Name)
 	step.Done()
-	_, _, err := client.NomadClient.Jobs().Deregister(state.Name, true, nil)
+	_, _, err := client.Jobs().Deregister(state.Name, true, nil)
 	return err
 }
 
@@ -157,17 +173,17 @@ func (p *Platform) resourceJobStatus(
 	log hclog.Logger,
 	sg terminal.StepGroup,
 	state *Resource_Job,
-	client *nomadClient,
+	client *api.Client,
 	sr *resource.StatusResponse,
 	ui terminal.UI,
 ) error {
 	s := sg.Add("Gathering health report for Nomad job...")
 	defer s.Abort()
 
-	jobClient := client.NomadClient.Jobs()
+	jobClient := client.Jobs()
 
 	s.Update("Parsing the job specification...")
-	jobspec, err := p.jobspec(client.NomadClient, p.config.Jobspec)
+	jobspec, err := p.jobspec(client, p.config.Jobspec, p.config.Hcl1)
 	if err != nil {
 		return err
 	}
@@ -191,12 +207,19 @@ func (p *Platform) resourceJobStatus(
 	stateJson, err := json.Marshal(map[string]interface{}{
 		"deployment": job,
 	})
+	if err != nil {
+		return err
+	}
+
 	jobResource.StateJson = string(stateJson)
 
 	// If job is running, start checking evals, then allocs
 	if *job.Status == "running" {
 		// Get list of evaluations for job
 		evals, _, err := jobClient.Evaluations(*job.ID, q)
+		if err != nil {
+			return err
+		}
 		hasSquashedEvals := false
 		for _, eval := range evals {
 			switch eval.Status {
@@ -238,6 +261,15 @@ func (p *Platform) resourceJobStatus(
 				}
 				currentJobVersionAllocs += 1
 			}
+		}
+
+		// Need to subtract # of canaries in the update stanza from
+		// "completed". Canary allocs will end up in the "completed"
+		// state after the deployment, and thusly throw off the count
+		// of otherwise "completed" allocs, resulting in a partial
+		// state, when it's actually healthy
+		if complete > 0 {
+			complete = complete - *job.Update.Canary
 		}
 
 		if running == currentJobVersionAllocs && hasSquashedEvals == false {
@@ -310,7 +342,11 @@ func (p *Platform) Deploy(
 		return nil, err
 	}
 	// Parse the HCL
-	job, err := p.jobspec(client, p.config.Jobspec)
+	job, err := p.jobspec(client, p.config.Jobspec, p.config.Hcl1)
+	if err != nil {
+		return nil, err
+	}
+
 	result.Name = *job.ID
 
 	// We'll update the user in real time
@@ -375,16 +411,20 @@ func (p *Platform) Generation(
 	}
 
 	// Parse the HCL
-	job, err := p.jobspec(client, p.config.Jobspec)
+	job, err := p.jobspec(client, p.config.Jobspec, p.config.Hcl1)
 	if err != nil {
 		return nil, err
 	}
 
-	// If we have canaries, generate random ID, otherwise keep gen ID as job ID
 	canaryDeployment := false
-	for _, taskGroup := range job.TaskGroups {
-		if *taskGroup.Update.Canary > 0 {
-			canaryDeployment = true
+	// If we have canaries, generate random ID, otherwise keep gen ID as job ID.
+	// Periodic jobs and system jobs currently don't support canaries, so we don't
+	// do this check if our job fits either case.
+	if !job.IsPeriodic() && *job.Type != "system" {
+		for _, taskGroup := range job.TaskGroups {
+			if *taskGroup.Update.Canary > 0 {
+				canaryDeployment = true
+			}
 		}
 	}
 
@@ -396,12 +436,16 @@ func (p *Platform) Generation(
 
 }
 
-func (p *Platform) jobspec(client *api.Client, path string) (*api.Job, error) {
+func (p *Platform) jobspec(client *api.Client, path string, hcl1 bool) (*api.Job, error) {
 	jobspec, err := ioutil.ReadFile(p.config.Jobspec)
 	if err != nil {
 		return nil, err
 	}
-	job, err := client.Jobs().ParseHCL(string(jobspec), true)
+	job, err := client.Jobs().ParseHCLOpts(&api.JobsParseRequest{
+		JobHCL:       string(jobspec),
+		HCLv1:        hcl1,
+		Canonicalize: true,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -497,6 +541,9 @@ func (p *Platform) Status(
 type Config struct {
 	// The path to the job specification to load.
 	Jobspec string `hcl:"jobspec,attr"`
+
+	// Signifies whether the jobspec should be parsed as HCL1 or not
+	Hcl1 bool `hcl:"hcl1,optional"`
 }
 
 func (p *Platform) Documentation() (*docs.Documentation, error) {
@@ -510,21 +557,25 @@ Deploy to a Nomad cluster from a pre-existing Nomad job specification file.
 
 This plugin lets you use any pre-existing Nomad job specification file to
 deploy to Nomad. This deployment is able to support all the features of Waypoint.
-You may use Waypoint's [templating features](/docs/waypoint-hcl/functions/template)
+You may use Waypoint's [templating features](/waypoint/docs/waypoint-hcl/functions/template)
 to template the Nomad jobspec with information such as the artifact from
 a previous build step, entrypoint environment variables, etc.
 
 ### Artifact Access
 
-You may use Waypoint's [templating features](/docs/waypoint-hcl/functions/template)
+You may use Waypoint's [templating features](/waypoint/docs/waypoint-hcl/functions/template)
 to access information such as the artifact from the build or push stages.
 An example below shows this by using ` + "`templatefile`" + ` mixed with
 variables such as ` + "`artifact.image`" + ` to dynamically configure the
 Docker image within the Nomad job specification.
 
+-> **Note:** If using [Nomad interpolation](/nomad/docs/runtime/interpolation) in your jobspec file,
+and the ` + "`templatefile`" + ` function in your waypoint.hcl file, any interpolated values must be escaped with a second 
+` + "`$`" + `. For example: ` + "`$${meta.metadata}`" + ` instead of ` + "`${meta.metadata}`" + `.
+
 ### Entrypoint Functionality
 
-Waypoint [entrypoint functionality](/docs/entrypoint#functionality) such
+Waypoint [entrypoint functionality](/waypoint/docs/entrypoint#functionality) such
 as logs, exec, app configuration, and more require two properties to be true:
 
 1. The running image must already have the Waypoint entrypoint installed
@@ -535,14 +586,17 @@ as logs, exec, app configuration, and more require two properties to be true:
   deployment stage.**
 
 **Step 2 does not happen automatically.** You must manually set the entrypoint
-environment variables using the [templating feature](/docs/waypoint-hcl/functions/template).
+environment variables using the [templating feature](/waypoint/docs/waypoint-hcl/functions/template).
 One of the examples below shows the entrypoint environment variables being
 injected.
+
+-> **Note:** The Waypoint entrypoint and the [Nomad entrypoint functionality](/nomad/docs/drivers/docker#entrypoint) 
+cannot be used simultaneously. In order to use the features of the Waypoint entrypoint, the Nomad entrypoint must not be used in your jobspec.
 
 ### URL Service
 
 If you want your workload to be accessible by the
-[Waypoint URL service](/docs/url), you must set the PORT environment variable
+[Waypoint URL service](/waypoint/docs/url), you must set the PORT environment variable
 within your job and be using the Waypoint entrypoint (documented in the
 previous section).
 
@@ -551,6 +605,9 @@ is listening on that the URL service will connect to. See one of the examples
 below for more details.
 
 `)
+
+	doc.Input("docker.Image")
+	doc.Output("jobspec.Deployment")
 
 	doc.Example(`
 deploy {
@@ -599,6 +656,26 @@ job "web" {
 	doc.SetField(
 		"jobspec",
 		"Path to a Nomad job specification file.",
+	)
+
+	doc.SetField(
+		"hcl1",
+		"Parses jobspec as HCL1 instead of HCL2.",
+		docs.Default("false"),
+	)
+
+	doc.SetField(
+		"consul_token",
+		"The Consul ACL token used to register services with the Nomad job.",
+		docs.Summary("Uses the runner config environment variable CONSUL_HTTP_TOKEN."),
+		docs.EnvVar("CONSUL_HTTP_TOKEN"),
+	)
+
+	doc.SetField(
+		"vault_token",
+		"The Vault token used to deploy the Nomad job with a token having specific Vault policies attached.",
+		docs.Summary("Uses the runner config environment variable VAULT_TOKEN."),
+		docs.EnvVar("VAULT_TOKEN"),
 	)
 
 	return doc, nil

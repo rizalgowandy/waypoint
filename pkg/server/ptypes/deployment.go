@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ptypes
 
 import (
@@ -12,7 +15,7 @@ import (
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
 )
 
-// TestDeployment returns a valid project for tests.
+// TestDeployment returns a valid deployment for tests.
 func TestDeployment(t testing.T, src *pb.Deployment) *pb.Deployment {
 	t.Helper()
 
@@ -76,5 +79,12 @@ func ValidateGetDeploymentRequest(v *pb.GetDeploymentRequest) error {
 		validationext.StructField(&v.Ref, func() []*validation.FieldRules {
 			return ValidateRefOperationRules(v.Ref)
 		}),
+	))
+}
+
+// ValidateGetLatestDeploymentRequest
+func ValidateGetLatestDeploymentRequest(v *pb.GetLatestDeploymentRequest) error {
+	return validationext.Error(validation.ValidateStruct(v,
+		validation.Field(&v.Application, validation.Required),
 	))
 }

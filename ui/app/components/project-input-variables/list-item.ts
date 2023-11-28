@@ -1,9 +1,13 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import Component from '@glimmer/component';
 import { tracked } from '@glimmer/tracking';
 import { action } from '@ember/object';
 import { Project, Variable } from 'waypoint-pb';
 import { inject as service } from '@ember/service';
-import ApiService from 'waypoint/services/api';
 
 interface VariableArgs {
   variable: Variable.AsObject;
@@ -17,13 +21,13 @@ interface VariableArgs {
 }
 
 export default class ProjectInputVariablesListItemComponent extends Component<VariableArgs> {
-  @service api!: ApiService;
   @service('pdsFlashMessages') flashMessages;
 
   initialVariable: Variable.AsObject;
   @tracked variable: Variable.AsObject;
   @tracked isCreating: boolean;
   @tracked isEditing: boolean;
+  @tracked writeOnly: boolean;
 
   constructor(owner: unknown, args: VariableArgs) {
     super(owner, args);
@@ -31,6 +35,7 @@ export default class ProjectInputVariablesListItemComponent extends Component<Va
     this.variable = variable;
     this.isEditing = isEditing;
     this.isCreating = isCreating;
+    this.writeOnly = false;
     this.initialVariable = JSON.parse(JSON.stringify(this.variable));
   }
 
@@ -38,8 +43,13 @@ export default class ProjectInputVariablesListItemComponent extends Component<Va
     return !!this.variable.hcl;
   }
 
+  get isSensitive(): boolean {
+    return !!this.variable.sensitive;
+  }
+
   storeInitialVariable(): void {
     this.initialVariable = JSON.parse(JSON.stringify(this.variable));
+    this.writeOnly = this.variable.sensitive ? true : false;
   }
 
   @action
@@ -98,5 +108,10 @@ export default class ProjectInputVariablesListItemComponent extends Component<Va
       this.variable.hcl = variable.str;
       this.variable.str = '';
     }
+  }
+
+  @action
+  toggleSensitive(variable: Variable.AsObject): void {
+    this.variable.sensitive = !variable.sensitive;
   }
 }

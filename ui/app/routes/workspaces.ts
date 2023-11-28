@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import ApiService from 'waypoint/services/api';
 import Route from '@ember/routing/route';
 import SessionService from 'ember-simple-auth/services/session';

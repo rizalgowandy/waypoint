@@ -1,15 +1,18 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package core
 
 import (
 	"context"
-	"errors"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes/any"
 	"github.com/hashicorp/go-argmapper"
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/opaqueany"
+	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/hashicorp/waypoint-plugin-sdk/component"
 	"github.com/hashicorp/waypoint/internal/config"
@@ -59,7 +62,11 @@ func (a *App) Build(ctx context.Context, optFuncs ...BuildOption) (
 	if err != nil {
 		return nil, nil, err
 	}
-	build := msg.(*pb.Build)
+	build, ok := msg.(*pb.Build)
+	if !ok {
+		return nil, nil, status.Error(codes.Internal,
+			"app_build failed to convert the operation message into a Build proto message")
+	}
 
 	// If we're not pushing, then we're done!
 	if !opts.Push {
@@ -147,7 +154,7 @@ func (op *buildOperation) Upsert(
 		Build: msg.(*pb.Build),
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed upserting build operation")
 	}
 
 	return resp.Build, nil
@@ -166,7 +173,7 @@ func (op *buildOperation) Do(ctx context.Context, log hclog.Logger, app *App, _ 
 				args = append(args, argmapper.Typed(raw))
 
 				if pm, ok := raw.(interface {
-					TypedAny() *any.Any
+					TypedAny() *opaqueany.Any
 				}); ok {
 					any := pm.TypedAny()
 
@@ -203,7 +210,7 @@ func (op *buildOperation) StatusPtr(msg proto.Message) **pb.Status {
 	return &(msg.(*pb.Build).Status)
 }
 
-func (op *buildOperation) ValuePtr(msg proto.Message) (**any.Any, *string) {
+func (op *buildOperation) ValuePtr(msg proto.Message) (**opaqueany.Any, *string) {
 	v := msg.(*pb.Build)
 	if v.Artifact == nil {
 		v.Artifact = &pb.Artifact{}

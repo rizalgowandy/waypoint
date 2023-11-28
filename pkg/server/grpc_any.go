@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package server
 
 import (
@@ -5,9 +8,9 @@ import (
 	"strings"
 
 	gwruntime "github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/hashicorp/opaqueany"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/hashicorp/waypoint/pkg/nullify"
 )
@@ -45,7 +48,7 @@ func GWNullAnyUnaryInterceptor() grpc.UnaryServerInterceptor {
 			}
 
 			if gw {
-				if nerr := nullify.Nullify(resp, (*anypb.Any)(nil)); nerr != nil {
+				if nerr := nullify.Nullify(resp, (*opaqueany.Any)(nil)); nerr != nil {
 					return nil, nerr
 				}
 			}

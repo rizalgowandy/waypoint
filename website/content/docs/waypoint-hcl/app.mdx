@@ -5,6 +5,12 @@ description: |-
   The `app` stanza describes a single deployable application within a project. A majority of the configuration of your project will be done in this stanza.
 ---
 
+<Warning>
+
+This content is part of the legacy version of Waypoint that is no longer actively maintained. For additional information on the new vision of Waypoint, check out [this blog post](https://www.hashicorp.com/blog/a-new-vision-for-hcp-waypoint) and the [HCP Waypoint documentation](/hcp/docs/waypoint).
+
+</Warning>
+
 # `app` Stanza
 
 <Placement groups={[['app']]} />
@@ -111,14 +117,18 @@ The `app` stanza is composed of other stanzas and parameters, namely `build`,
 
 - `release` <code>([release][release]: nil)</code> - Describes how to release
   this application during `waypoint up` or `waypoint release`. See
-  [default behavior](/docs/lifecycle/release#default-behavior) for how
+  [default behavior](/waypoint/docs/lifecycle/release#default-behavior) for how
   releases are handled if release configuration is not specified.
 
-- `url` <code>([url][url]: nil)</code> - Describes the [URL service](/docs/url)
+- `runner` <code>([runner][runner]: nil)</code> - The runner stanza configures
+  a project for remote operations.
+
+- `url` <code>([url][url]: nil)</code> - Describes the [URL service](/waypoint/docs/url)
   behavior for this application. If this isn't specified, the default settings
   configured on the Waypoint server will be used.
 
-[build]: /docs/waypoint-hcl/build 'Build Stanza'
-[deploy]: /docs/waypoint-hcl/deploy 'Deploy Stanza'
-[release]: /docs/waypoint-hcl/release 'Release Stanza'
-[url]: /docs/waypoint-hcl/url 'url Stanza'
+[build] /docs/waypoint-hcl/build 'Build Stanza'
+[deploy] /docs/waypoint-hcl/deploy 'Deploy Stanza'
+[release] /docs/waypoint-hcl/release 'Release Stanza'
+[runner] /docs/waypoint-hcl/runner 'Runner Stanza'
+[url] /docs/waypoint-hcl/url 'url Stanza'

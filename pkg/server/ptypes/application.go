@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ptypes
 
 import (
@@ -33,7 +36,7 @@ func TestApplication(t testing.T, src *pb.Application) *pb.Application {
 func ValidateUpsertApplicationRequest(v *pb.UpsertApplicationRequest) error {
 	return validationext.Error(validation.ValidateStruct(v,
 		validation.Field(&v.Project, validation.Required),
-		validation.Field(&v.Name, validation.Required),
+		validation.Field(&v.Name, validation.Required, validation.By(validatePathToken)),
 	))
 }
 

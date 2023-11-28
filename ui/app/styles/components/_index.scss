@@ -1,9 +1,15 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 @import 'app-item';
 @import 'badge';
 @import 'button';
 @import 'card';
 @import 'cli-hint';
 @import 'code-editor-field.scss';
+@import 'container-image-tag';
 @import 'copyable-code';
 @import 'empty-state';
 @import 'flash';
@@ -25,7 +31,6 @@
 @import 'project-init-error';
 @import 'resource-detail';
 @import 'section';
-@import 'spinner';
 @import 'status-report-indicator';
 @import 'structure/pds-form';
 @import 'structure/pds-tabnav';

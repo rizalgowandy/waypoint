@@ -1,3 +1,8 @@
+{{!
+  Copyright (c) HashiCorp, Inc.
+  SPDX-License-Identifier: BUSL-1.1
+}}
+
 <OperationStatusIndicator @operation={{@operation}} @isDetailed={{true}}>
   <:status-text>
     {{if (eq @operation.status.state 1) 'Releasing' 'Released'}} on

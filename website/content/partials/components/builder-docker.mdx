@@ -21,6 +21,7 @@ to specify any additional configuration.
 
 ### Interface
 
+- Input: **component.Source**
 - Output: **docker.Image**
 
 ### Examples
@@ -36,11 +37,17 @@ build {
 
 ### Required Parameters
 
-These parameters are used in the [`use` stanza](/docs/waypoint-hcl/use) for this plugin.
+This plugin has no required parameters.
+
+### Optional Parameters
+
+These parameters are used in the [`use` stanza](/waypoint/docs/waypoint-hcl/use) for this plugin.
 
 #### auth (category)
 
 The authentication information to log into the docker repository.
+
+- **Optional**
 
 ##### auth.auth
 
@@ -94,15 +101,11 @@ Username of Docker registry account.
 - Type: **string**
 - **Optional**
 
-### Optional Parameters
-
-These parameters are used in the [`use` stanza](/docs/waypoint-hcl/use) for this plugin.
-
 #### build_args
 
 Build args to pass to docker for the build step.
 
-An array of strings of build-time variables passed as build-arg to docker for the build step.
+A map of key/value pairs passed as build-args to docker for the build step.
 
 - Type: **map of string to string**
 - **Optional**
@@ -168,7 +171,7 @@ If buildkit is enabled unused stages will be skipped.
 
 ### Output Attributes
 
-Output attributes can be used in your `waypoint.hcl` as [variables](/docs/waypoint-hcl/variables) via [`artifact`](/docs/waypoint-hcl/variables/artifact) or [`deploy`](/docs/waypoint-hcl/variables/deploy).
+Output attributes can be used in your `waypoint.hcl` as [variables](/waypoint/docs/waypoint-hcl/variables) via [`artifact`](/waypoint/docs/waypoint-hcl/variables/artifact) or [`deploy`](/waypoint/docs/waypoint-hcl/variables/deploy).
 
 #### architecture
 

@@ -1,12 +1,16 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package statetest
 
 import (
+	"context"
 	"testing"
 	"time"
 
-	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/hashicorp/go-memdb"
 	"github.com/stretchr/testify/require"
+	empty "google.golang.org/protobuf/types/known/emptypb"
 
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
 )
@@ -20,7 +24,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 	// field. This is done on purpose because I wanted to retain tests
 	// from our old format to ensure that we have backwards compatibility.
 	// New functionality uses the new format.
-
+	ctx := context.Background()
 	t.Run("basic put and get", func(t *testing.T) {
 		require := require.New(t)
 
@@ -28,7 +32,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		defer s.Close()
 
 		// Create a config
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			UnusedScope: &pb.ConfigVar_Project{
 				Project: &pb.Ref_Project{
 					Project: "foo",
@@ -40,7 +44,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		}))
 
 		// Create a runner config, we should never get this
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			Target: &pb.ConfigVar_Target{
 				AppScope: &pb.ConfigVar_Target_Project{
 					Project: &pb.Ref_Project{
@@ -61,7 +65,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Get it exactly
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Project{
 					Project: &pb.Ref_Project{Project: "foo"},
 				},
@@ -74,7 +78,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Get it via a prefix match
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Project{
 					Project: &pb.Ref_Project{Project: "foo"},
 				},
@@ -87,7 +91,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// non-matching prefix
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Project{
 					Project: &pb.Ref_Project{Project: "foo"},
 				},
@@ -99,6 +103,98 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		}
 	})
 
+	t.Run("explicit delete", func(t *testing.T) {
+		require := require.New(t)
+
+		s := factory(t)
+		defer s.Close()
+
+		// Create a config
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
+			UnusedScope: &pb.ConfigVar_Project{
+				Project: &pb.Ref_Project{
+					Project: "foo",
+				},
+			},
+
+			Name:  "foo",
+			Value: &pb.ConfigVar_Static{Static: "bar"},
+		}))
+
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
+			UnusedScope: &pb.ConfigVar_Project{
+				Project: &pb.Ref_Project{
+					Project: "foo",
+				},
+			},
+
+			Name:  "barbar",
+			Value: &pb.ConfigVar_Static{Static: "barbar"},
+		}))
+
+		// Create a runner config, we should never get this
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
+			Target: &pb.ConfigVar_Target{
+				AppScope: &pb.ConfigVar_Target_Project{
+					Project: &pb.Ref_Project{
+						Project: "foo",
+					},
+				},
+
+				Runner: &pb.Ref_Runner{
+					Target: &pb.Ref_Runner_Any{
+						Any: &pb.Ref_RunnerAny{},
+					},
+				},
+			},
+
+			Name:  "bar",
+			Value: &pb.ConfigVar_Static{Static: "bar"},
+		}))
+
+		{
+			// Get it exactly
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
+				Scope: &pb.ConfigGetRequest_Project{
+					Project: &pb.Ref_Project{Project: "foo"},
+				},
+
+				Prefix: "foo",
+			})
+			require.NoError(err)
+			require.Len(vs, 1)
+		}
+
+		{
+			// delete it
+			var vars []*pb.ConfigVar
+			vars = append(vars, &pb.ConfigVar{
+				Target: &pb.ConfigVar_Target{
+					AppScope: &pb.ConfigVar_Target_Project{
+						Project: &pb.Ref_Project{
+							Project: "foo",
+						},
+					},
+				},
+
+				Name: "foo",
+			})
+			err := s.ConfigDelete(ctx, vars...)
+			require.NoError(err)
+
+			// It's gone
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
+				Scope: &pb.ConfigGetRequest_Project{
+					Project: &pb.Ref_Project{Project: "foo"},
+				},
+
+				Prefix: "foo",
+			})
+			require.NoError(err)
+			require.Len(vs, 0)
+		}
+	})
+
 	t.Run("deletes before writes", func(t *testing.T) {
 		require := require.New(t)
 
@@ -106,7 +202,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		defer s.Close()
 
 		// Create a config
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			UnusedScope: &pb.ConfigVar_Project{
 				Project: &pb.Ref_Project{
 					Project: "foo",
@@ -130,7 +226,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Get it exactly
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Project{
 					Project: &pb.Ref_Project{Project: "foo"},
 				},
@@ -145,7 +241,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Get it via a prefix match
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Project{
 					Project: &pb.Ref_Project{Project: "foo"},
 				},
@@ -158,7 +254,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// non-matching prefix
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Project{
 					Project: &pb.Ref_Project{Project: "foo"},
 				},
@@ -178,6 +274,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		// Create vars
 		require.NoError(s.ConfigSet(
+			ctx,
 			&pb.ConfigVar{
 				Target: &pb.ConfigVar_Target{
 					AppScope: &pb.ConfigVar_Target_Global{
@@ -223,7 +320,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Get our merged variables
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Application{
 					Application: &pb.Ref_Application{
 						Project:     "foo",
@@ -245,7 +342,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Get project scoped variables. This should return everything.
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Project{
 					Project: &pb.Ref_Project{
 						Project: "foo",
@@ -264,7 +361,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		defer s.Close()
 
 		// Create a var
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			UnusedScope: &pb.ConfigVar_Project{
 				Project: &pb.Ref_Project{
 					Project: "foo",
@@ -277,7 +374,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Get it exactly
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Project{
 					Project: &pb.Ref_Project{Project: "foo"},
 				},
@@ -289,7 +386,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		}
 
 		// Delete it
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			UnusedScope: &pb.ConfigVar_Project{
 				Project: &pb.Ref_Project{
 					Project: "foo",
@@ -302,7 +399,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		// Should not exist
 		{
 			// Get it exactly
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Project{
 					Project: &pb.Ref_Project{Project: "foo"},
 				},
@@ -321,7 +418,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		defer s.Close()
 
 		// Create a var
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			UnusedScope: &pb.ConfigVar_Project{
 				Project: &pb.Ref_Project{
 					Project: "foo",
@@ -334,7 +431,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Get it exactly
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Project{
 					Project: &pb.Ref_Project{Project: "foo"},
 				},
@@ -346,7 +443,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		}
 
 		// Delete it
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			UnusedScope: &pb.ConfigVar_Project{
 				Project: &pb.Ref_Project{
 					Project: "foo",
@@ -362,7 +459,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		// Should not exist
 		{
 			// Get it exactly
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Project{
 					Project: &pb.Ref_Project{Project: "foo"},
 				},
@@ -381,7 +478,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		defer s.Close()
 
 		// Create a var
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			UnusedScope: &pb.ConfigVar_Project{
 				Project: &pb.Ref_Project{
 					Project: "foo",
@@ -394,7 +491,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Get it exactly
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Project{
 					Project: &pb.Ref_Project{Project: "foo"},
 				},
@@ -406,7 +503,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		}
 
 		// Delete it
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			UnusedScope: &pb.ConfigVar_Project{
 				Project: &pb.Ref_Project{
 					Project: "foo",
@@ -420,7 +517,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		// Should not exist
 		{
 			// Get it exactly
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Project{
 					Project: &pb.Ref_Project{Project: "foo"},
 				},
@@ -439,7 +536,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		defer s.Close()
 
 		// Create the config
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			UnusedScope: &pb.ConfigVar_Runner{
 				Runner: &pb.Ref_Runner{
 					Target: &pb.Ref_Runner_Any{
@@ -453,7 +550,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		}))
 
 		// Create a var that shouldn't match
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			UnusedScope: &pb.ConfigVar_Project{
 				Project: &pb.Ref_Project{
 					Project: "foo",
@@ -466,7 +563,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Get it exactly.
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Runner: &pb.Ref_RunnerId{Id: "R_A"},
 
 				Prefix: "foo",
@@ -477,7 +574,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Get it via a prefix match
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Runner: &pb.Ref_RunnerId{Id: "R_A"},
 
 				Prefix: "",
@@ -488,7 +585,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// non-matching prefix
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Runner: &pb.Ref_RunnerId{Id: "R_A"},
 
 				Prefix: "bar",
@@ -505,7 +602,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		defer s.Close()
 
 		// Create the config
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			UnusedScope: &pb.ConfigVar_Runner{
 				Runner: &pb.Ref_Runner{
 					Target: &pb.Ref_Runner_Id{
@@ -521,7 +618,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		}))
 
 		// Create a var that shouldn't match
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			UnusedScope: &pb.ConfigVar_Project{
 				Project: &pb.Ref_Project{
 					Project: "foo",
@@ -534,7 +631,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Get it exactly.
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Runner: &pb.Ref_RunnerId{Id: "R_A"},
 
 				Prefix: "foo",
@@ -545,7 +642,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Doesn't match
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Runner: &pb.Ref_RunnerId{Id: "R_B"},
 
 				Prefix: "foo",
@@ -562,7 +659,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		defer s.Close()
 
 		// Create the config
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			UnusedScope: &pb.ConfigVar_Runner{
 				Runner: &pb.Ref_Runner{
 					Target: &pb.Ref_Runner_Any{
@@ -575,7 +672,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 			Value: &pb.ConfigVar_Static{Static: "bar"},
 		}))
 
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			UnusedScope: &pb.ConfigVar_Runner{
 				Runner: &pb.Ref_Runner{
 					Target: &pb.Ref_Runner_Id{
@@ -592,7 +689,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Get it exactly.
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Runner: &pb.Ref_RunnerId{Id: "R_A"},
 
 				Prefix: "foo",
@@ -610,7 +707,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		defer s.Close()
 
 		// Create the config
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			Target: &pb.ConfigVar_Target{
 				AppScope: &pb.ConfigVar_Target_Application{
 					Application: &pb.Ref_Application{
@@ -630,7 +727,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 			Value: &pb.ConfigVar_Static{Static: "bar"},
 		}))
 
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			Target: &pb.ConfigVar_Target{
 				AppScope: &pb.ConfigVar_Target_Global{
 					Global: &pb.Ref_Global{},
@@ -651,7 +748,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Get it exactly.
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Application{
 					Application: &pb.Ref_Application{
 						Project:     "foo",
@@ -669,7 +766,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Get it for a global runner scope.
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Runner: &pb.Ref_RunnerId{Id: "R_A"},
 			})
 			require.NoError(err)
@@ -685,7 +782,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		defer s.Close()
 
 		// Create a config
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			Target: &pb.ConfigVar_Target{
 				AppScope: &pb.ConfigVar_Target_Application{
 					Application: &pb.Ref_Application{
@@ -703,7 +800,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// No workspace set
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Application{
 					Application: &pb.Ref_Application{
 						Project:     "foo",
@@ -719,7 +816,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Matching workspace
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Application{
 					Application: &pb.Ref_Application{
 						Project:     "foo",
@@ -735,7 +832,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Non-Matching workspace
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Application{
 					Application: &pb.Ref_Application{
 						Project:     "foo",
@@ -757,7 +854,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		defer s.Close()
 
 		// Create a config that overrides based on workspace
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			Target: &pb.ConfigVar_Target{
 				AppScope: &pb.ConfigVar_Target_Application{
 					Application: &pb.Ref_Application{
@@ -770,7 +867,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 			Name:  "foo",
 			Value: &pb.ConfigVar_Static{Static: "one"},
 		}))
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			Target: &pb.ConfigVar_Target{
 				AppScope: &pb.ConfigVar_Target_Application{
 					Application: &pb.Ref_Application{
@@ -788,7 +885,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Matching workspace
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Application{
 					Application: &pb.Ref_Application{
 						Project:     "foo",
@@ -805,7 +902,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Non-Matching workspace
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Application{
 					Application: &pb.Ref_Application{
 						Project:     "foo",
@@ -828,7 +925,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		defer s.Close()
 
 		// Create a config that overrides based on workspace
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			Target: &pb.ConfigVar_Target{
 				AppScope: &pb.ConfigVar_Target_Application{
 					Application: &pb.Ref_Application{
@@ -843,7 +940,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 			Name:  "foo",
 			Value: &pb.ConfigVar_Static{Static: "one"},
 		}))
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			Target: &pb.ConfigVar_Target{
 				AppScope: &pb.ConfigVar_Target_Application{
 					Application: &pb.Ref_Application{
@@ -860,7 +957,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		}))
 
 		{
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Application{
 					Application: &pb.Ref_Application{
 						Project:     "foo",
@@ -876,7 +973,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		}
 
 		{
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Application{
 					Application: &pb.Ref_Application{
 						Project:     "foo",
@@ -899,7 +996,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		defer s.Close()
 
 		// Create a build
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			Target: &pb.ConfigVar_Target{
 				AppScope: &pb.ConfigVar_Target_Application{
 					Application: &pb.Ref_Application{
@@ -917,7 +1014,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// No labels set
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Application{
 					Application: &pb.Ref_Application{
 						Project:     "foo",
@@ -933,7 +1030,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Matching labels
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Application{
 					Application: &pb.Ref_Application{
 						Project:     "foo",
@@ -949,7 +1046,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Non-Matching workspace
-			vs, err := s.ConfigGet(&pb.ConfigGetRequest{
+			vs, err := s.ConfigGet(ctx, &pb.ConfigGetRequest{
 				Scope: &pb.ConfigGetRequest_Application{
 					Application: &pb.Ref_Application{
 						Project:     "foo",
@@ -966,6 +1063,7 @@ func TestConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 }
 
 func TestConfigWatch(t *testing.T, factory Factory, restartF RestartFactory) {
+	ctx := context.Background()
 	t.Run("watches for new variables", func(t *testing.T) {
 		require := require.New(t)
 
@@ -975,7 +1073,7 @@ func TestConfigWatch(t *testing.T, factory Factory, restartF RestartFactory) {
 		ws := memdb.NewWatchSet()
 
 		// Get it with watch
-		vs, err := s.ConfigGetWatch(&pb.ConfigGetRequest{
+		vs, err := s.ConfigGetWatch(ctx, &pb.ConfigGetRequest{
 			Scope: &pb.ConfigGetRequest_Project{
 				Project: &pb.Ref_Project{Project: "foo"},
 			},
@@ -989,7 +1087,7 @@ func TestConfigWatch(t *testing.T, factory Factory, restartF RestartFactory) {
 		require.True(ws.Watch(time.After(10 * time.Millisecond)))
 
 		// Create a config
-		require.NoError(s.ConfigSet(&pb.ConfigVar{
+		require.NoError(s.ConfigSet(ctx, &pb.ConfigVar{
 			UnusedScope: &pb.ConfigVar_Project{
 				Project: &pb.Ref_Project{
 					Project: "foo",

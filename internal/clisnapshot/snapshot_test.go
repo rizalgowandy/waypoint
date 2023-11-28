@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package clisnapshot
 
 import (
@@ -9,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/hashicorp/waypoint/internal/server/singleprocess"
+	"github.com/hashicorp/waypoint/pkg/server/singleprocess"
 )
 
 func TestServerSnapshot(t *testing.T) {

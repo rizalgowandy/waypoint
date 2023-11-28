@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 // Package k8s contains components for deploying to Kubernetes.
 package k8s
 
@@ -5,7 +8,7 @@ import (
 	sdk "github.com/hashicorp/waypoint-plugin-sdk"
 )
 
-//go:generate protoc -I ../../.. --go_opt=plugins=grpc --go_out=../../.. waypoint/builtin/k8s/plugin.proto
+//go:generate protoc -I ../../.. -I ../../thirdparty/proto --go_out=../../.. --go-grpc_out=../../.. waypoint/builtin/k8s/plugin.proto
 
 const platformName = "kubernetes"
 

@@ -1,3 +1,8 @@
+{{!
+  Copyright (c) HashiCorp, Inc.
+  SPDX-License-Identifier: BUSL-1.1
+}}
+
 {{page-title "Projects"}}
 
 {{#if this.cli}}
@@ -20,18 +25,39 @@
       {{/if}}
     </small>
   </div>
-  <Pds::CtaLink @route="workspace.projects.new" @variant="secondary "class="pds--iconStart">
+  <Pds::CtaLink @route="workspace.projects.create" @variant="secondary "class="pds--iconStart">
     <FlightIcon @name="plus" class="pds-button__iconStart"/>
-    &nbsp;{{t "form.project_new.title"}}
+    &nbsp;{{t "form.project_create.title"}}
   </Pds::CtaLink>
 </PageHeader>
+
+<Hds::Alert class='deprecation-banner' @type='inline' @color='neutral' @icon='info' as |A|>
+  <A.Title>
+    {{t 'page.project.deprecation-banner.title'}}
+  </A.Title>
+  <A.Description>
+    <div class='deprecation-description'>
+      {{t 'page.project.deprecation-banner.description'}}
+      <div>
+        <Hds::Link::Standalone
+          @icon='external-link'
+          @iconPosition='trailing'
+          @text={{
+            t 'page.project.deprecation-banner.link'
+          }}
+          @href='https://discuss.hashicorp.com/t/deprecating-projects-or-how-i-learned-to-love-apps/40888'
+        />
+      </div>
+    </div>
+  </A.Description>
+</Hds::Alert>
 
 <div data-test-project-list>
   {{#each @model as |project|}}
   <Card>
     <LinkTo @route="workspace.projects.project" @model={{project.project}}>
       <div class="row">
-        <IconTile @icon="folder" />
+        <Hds::IconTile @icon="folder" />
         <div class="meta">
           <h2>{{project.project}}</h2>
           {{!-- todo(pearkes): get full project objects from list api --}}
@@ -42,7 +68,7 @@
   </Card>
   {{else}}
   <EmptyState>
-    <p>There are no projects to display yet. <LinkTo @route="workspace.projects.new">Create your first project here</LinkTo>.</p>
+    <p>There are no projects to display yet. <LinkTo @route="workspace.projects.create">Create your first project here</LinkTo>.</p>
     <p>Alternatively, you can run
       <CopyableCode @ref="empty-init" @inline="true">
         <code id="empty-init">waypoint init</code>

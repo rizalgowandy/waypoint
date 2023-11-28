@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package helm
 
 import (
@@ -89,13 +92,9 @@ func (p *Platform) Deploy(
 		return nil, err
 	}
 
-	chartNS := ""
-	if v := p.config.Namespace; v != "" {
-		chartNS = v
-	}
-	if chartNS == "" {
-		// If all else fails, default the namespace to "default"
-		chartNS = "default"
+	if p.config.Namespace == "" {
+		// default the namespace to "default"
+		p.config.Namespace = "default"
 	}
 
 	// From here on out, we will always return a partial deployment if we error.
@@ -115,18 +114,20 @@ func (p *Platform) Deploy(
 		client.Devel = p.config.Devel
 		client.DependencyUpdate = false
 		client.Timeout = 300 * time.Second
-		client.Namespace = chartNS
+		client.Namespace = p.config.Namespace
 		client.ReleaseName = p.config.Name
 		client.GenerateName = false
 		client.NameTemplate = ""
 		client.OutputDir = ""
 		client.Atomic = false
-		client.SkipCRDs = false
+		client.SkipCRDs = p.config.SkipCRDs
 		client.SubNotes = true
 		client.DisableOpenAPIValidation = false
 		client.Replace = false
 		client.Description = ""
-		client.CreateNamespace = true
+		client.CreateNamespace = p.config.CreateNamespace
+
+		log.Debug("installing client in namespace", "namespace", client.Namespace)
 
 		s.Update("Installing Chart...")
 		rel, err := client.Run(c, values)
@@ -151,9 +152,9 @@ func (p *Platform) Deploy(
 	client.Devel = p.config.Devel
 	client.DependencyUpdate = false
 	client.Timeout = 300 * time.Second
-	client.Namespace = chartNS
+	client.Namespace = p.config.Namespace
 	client.Atomic = false
-	client.SkipCRDs = false
+	client.SkipCRDs = p.config.SkipCRDs
 	client.SubNotes = true
 	client.DisableOpenAPIValidation = false
 	client.Description = ""
@@ -235,8 +236,10 @@ type Config struct {
 	Driver    string `hcl:"driver,optional"`
 	Namespace string `hcl:"namespace,optional"`
 
-	KubeconfigPath string `hcl:"kubeconfig,optional"`
-	Context        string `hcl:"context,optional"`
+	KubeconfigPath  string `hcl:"kubeconfig,optional"`
+	Context         string `hcl:"context,optional"`
+	CreateNamespace bool   `hcl:"create_namespace,optional"`
+	SkipCRDs        bool   `hcl:"skip_crds,optional"`
 }
 
 func (p *Platform) Documentation() (*docs.Documentation, error) {
@@ -251,7 +254,7 @@ or a chart in a repository.
 
 ### Entrypoint Functionality
 
-Waypoint [entrypoint functionality](/docs/entrypoint#functionality) such
+Waypoint [entrypoint functionality](/waypoint/docs/entrypoint#functionality) such
 as logs, exec, app configuration, and more require two properties to be true:
 
 1. The running image must already have the Waypoint entrypoint installed
@@ -262,17 +265,17 @@ as logs, exec, app configuration, and more require two properties to be true:
   deployment stage.**
 
 **Step 2 does not happen automatically.** You must manually set the entrypoint
-environment variables using the [templating feature](/docs/waypoint-hcl/functions/template).
+environment variables using the [templating feature](/waypoint/docs/waypoint-hcl/functions/template).
 These must be passed in using Helm values (i.e. the chart must make
 environment variables configurable).
 
 This is documented in more detail with a full example in the
-[Kubernetes Helm Deployment documentation](/docs/kubernetes/helm-deploy).
+[Kubernetes Helm Deployment documentation](/waypoint/docs/platforms/kubernetes/helm-deploy).
 
 #### URL Service
 
 If you want your workload to be accessible by the
-[Waypoint URL service](/docs/url), you must set the PORT environment variable
+[Waypoint URL service](/waypoint/docs/url), you must set the PORT environment variable
 within the pod with your web service and also be using the Waypoint
 entrypoint (documented in the previous section).
 
@@ -281,6 +284,8 @@ is listening on that the URL service will connect to. See one of the examples
 below for more details.
 
 `)
+	doc.Input("None")
+	doc.Output("k8s_helm.Deployment")
 
 	doc.Example(`
 // A local helm chart relative to the app.
@@ -380,8 +385,24 @@ deploy {
 		"namespace",
 		"Namespace to deploy the Helm chart.",
 		docs.Summary(
-			"This will be created if it does not exist. This defaults to the ",
+			"This will be created if it does not exist (see create_namespace). This defaults to the ",
 			"current namespace of the auth settings.",
+		),
+	)
+
+	doc.SetField(
+		"create_namespace",
+		"Create Namespace if it doesn't exist.",
+		docs.Summary(
+			"This option will instruct Helm to create a namespace if it doesn't exist.",
+		),
+	)
+
+	doc.SetField(
+		"skip_crds",
+		"Do not create CRDs",
+		docs.Summary(
+			"This option will tell Helm to skip the creation of CRDs.",
 		),
 	)
 

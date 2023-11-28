@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 :root {
   --toggle-color-off: #{dehex(color.$ui-cool-gray-300)};
   --toggle-color-on: #{dehex(color.$blue-500)};

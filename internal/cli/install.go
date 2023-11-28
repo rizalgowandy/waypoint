@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
@@ -7,21 +10,25 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang/protobuf/ptypes/empty"
+	"github.com/hashicorp/waypoint/internal/installutil"
+	"github.com/hashicorp/waypoint/internal/runnerinstall"
+
 	"github.com/hashicorp/go-hclog"
 	"github.com/posener/complete"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	empty "google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
 	"github.com/hashicorp/waypoint/internal/clicontext"
 	"github.com/hashicorp/waypoint/internal/clierrors"
 	"github.com/hashicorp/waypoint/internal/pkg/flag"
-	"github.com/hashicorp/waypoint/internal/serverclient"
 	"github.com/hashicorp/waypoint/internal/serverinstall"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
+	"github.com/hashicorp/waypoint/pkg/serverclient"
 	"github.com/hashicorp/waypoint/pkg/serverconfig"
+	"github.com/hashicorp/waypoint/pkg/tokenutil"
 )
 
 type InstallCommand struct {
@@ -92,7 +99,11 @@ func (c *InstallCommand) Run(args []string) int {
 		}
 	}
 
-	result, err := p.Install(ctx, &serverinstall.InstallOpts{
+	// NOTE(briancain): Currently only the K8s Helm installer returns a bootstrap
+	// token. Helm also installs a runner, so we use this fact to determine if
+	// we should not only bootstrap a token but also install a runner. We could
+	// make this better in the future.
+	result, bootstrapToken, err := p.Install(ctx, &serverinstall.InstallOpts{
 		Log:            log,
 		UI:             c.ui,
 		ServerRunFlags: secondaryArgs,
@@ -121,6 +132,7 @@ func (c *InstallCommand) Run(args []string) int {
 	retries := 0
 	maxRetries := 12
 	sr := sg.Add("Attempting to make connection to server...") // stepgroup for retry ui
+	defer func() { sr.Abort() }()
 
 	for {
 		log.Info("connecting to the server so we can set the server config", "addr", contextConfig.Server.Address)
@@ -137,7 +149,11 @@ func (c *InstallCommand) Run(args []string) int {
 			sr.Status(terminal.StatusError)
 			// dont return the error yet
 		} else {
-			sr.Update("Successfully connected to Waypoint server in %s!", strings.Title(c.platform))
+			p := strings.Title(c.platform)
+			if p == "Ecs" {
+				p = strings.ToUpper(p)
+			}
+			sr.Update("Successfully connected to Waypoint server in %s!", p)
 			sr.Status(terminal.StatusOK)
 			sr.Done()
 			break
@@ -166,32 +182,50 @@ func (c *InstallCommand) Run(args []string) int {
 			terminal.WithErrorStyle(),
 		)
 		return 1
+	} else {
+		// Close the step here, so that the order of resolved steps makes sense to
+		// the user in case we fail on the "Retrieving initial auth token..." series
+		// Prior to this change, if we failed to retrieve the auth token, the resolved
+		// step with the error message would appear _before_ the above "Successfully connected
+		// to Waypoint server!" message and that is confusing
+		s.Update("Configured server connection")
+		s.Status(terminal.StatusOK)
+		s.Done()
+		s = sg.Add("")
 	}
 
 	client := pb.NewWaypointClient(conn)
 
 	s.Update("Retrieving initial auth token...")
 
-	// We need our bootstrap token immediately
 	var callOpts []grpc.CallOption
-	tokenResp, err := client.BootstrapToken(ctx, &empty.Empty{})
-	if err != nil && status.Code(err) != codes.PermissionDenied {
-		c.ui.Output(
-			"Error getting the initial token: %s\n\n%s",
-			clierrors.Humanize(err),
-			errInstallRunning,
-			terminal.WithErrorStyle(),
-		)
-		return 1
+	token := bootstrapToken
+	if bootstrapToken == "" {
+		// We need our bootstrap token immediately
+		tokenResp, err := client.BootstrapToken(ctx, &empty.Empty{})
+		if err != nil && status.Code(err) != codes.PermissionDenied {
+			c.ui.Output(
+				"Error getting the initial token: %s\n\n%s",
+				clierrors.Humanize(err),
+				errInstallRunning,
+				terminal.WithErrorStyle(),
+			)
+			return 1
+		}
+		// If we're not using the k8s install path, then we set the token
+		// based on the tokenResp
+		if tokenResp != nil {
+			token = tokenResp.Token
+		}
 	}
 
-	if tokenResp != nil {
+	if token != "" {
 		log.Debug("token received, setting on context")
 		contextConfig.Server.RequireAuth = true
-		contextConfig.Server.AuthToken = tokenResp.Token
+		contextConfig.Server.AuthToken = token
 	} else {
 		// try default context in case server was started again from install
-		defaultCtx, err := c.contextStorage.Default()
+		defaultCtxName, err := c.contextStorage.Default()
 		if err != nil {
 			c.ui.Output(
 				"Error getting default context to use existing auth token: %s\n\n%s\n\n%s",
@@ -203,12 +237,12 @@ func (c *InstallCommand) Run(args []string) int {
 			return 1
 		}
 
-		if defaultCtx != "" {
-			defaultCtxConfig, err := c.contextStorage.Load(defaultCtx)
+		if defaultCtxName != "" {
+			defaultCtxConfig, err := c.contextStorage.Load(defaultCtxName)
 			if err != nil {
 				c.ui.Output(
 					"Error loading the context %q to use existing auth token: %s\n\n%s\n\n%s",
-					defaultCtx,
+					defaultCtxName,
 					clierrors.Humanize(err),
 					errInstallToken,
 					errInstallRunning,
@@ -259,8 +293,15 @@ func (c *InstallCommand) Run(args []string) int {
 		}
 	}
 
+	// TODO this should eventually not use StaticToken but something that can
+	// setup access via oauth if the token contains that as well.
 	callOpts = append(callOpts, grpc.PerRPCCredentials(
-		serverclient.StaticToken(contextConfig.Server.AuthToken)))
+		tokenutil.StaticToken(contextConfig.Server.AuthToken)))
+
+	// This is our default, so let's actually set the timestamp if not set on the CLI
+	if c.contextName == "" {
+		c.contextName = fmt.Sprintf("install-%d", time.Now().Unix())
+	}
 
 	// If we connected successfully, lets immediately setup our context.
 	if c.contextName != "" {
@@ -329,8 +370,17 @@ func (c *InstallCommand) Run(args []string) int {
 	s.Update("Server installed and configured!")
 	s.Done()
 
+	// NOTE(briancain): Right now we rely on the fact that only K8S returns a bootstrap
+	// token from the installation interface helper. Since we know helm sets up
+	// a bootstrap job AS WELL AS a runner, we don't need to install another runner
+	// or another runner profile.
 	if c.flagRunner {
-		if code := installRunner(c.Ctx, log, client, c.ui, p, advertiseAddr); code > 0 {
+		existingODRConfigSetup := false
+		if bootstrapToken != "" {
+			existingODRConfigSetup = true
+		}
+		// we pass nil for the ODR config because it's a fresh install
+		if code := installRunner(c.Ctx, log, client, c.ui, p, advertiseAddr, nil, existingODRConfigSetup, false); code > 0 {
 			return code
 		}
 	}
@@ -356,11 +406,11 @@ func (c *InstallCommand) Flags() *flag.Sets {
 		})
 
 		f.StringVar(&flag.StringVar{
-			Name:    "context-create",
-			Target:  &c.contextName,
-			Default: fmt.Sprintf("install-%d", time.Now().Unix()),
+			Name:   "context-create",
+			Target: &c.contextName,
 			Usage: "Create a context with connection information for this installation. " +
-				"The default value will be suffixed with a timestamp at the time the command is executed.",
+				"The default value if not set will be 'install-' and then be suffixed with a " +
+				"timestamp at the time the command is executed.",
 		})
 
 		f.BoolVar(&flag.BoolVar{
@@ -455,13 +505,15 @@ Alias: waypoint install
 //
 // This returns an exit code. If it is 0 it is success. Any other value is an
 // error. The function itself handles outputting error messages to the terminal.
-func installRunner(
-	ctx context.Context,
+func installRunner(ctx context.Context,
 	log hclog.Logger,
 	client pb.WaypointClient,
 	ui terminal.UI,
 	p serverinstall.Installer,
 	advertiseAddr *pb.ServerConfig_AdvertiseAddr,
+	odrConfig *pb.OnDemandRunnerConfig,
+	existingODRConfigSetup bool,
+	isUpgrade bool,
 ) int {
 	sg := ui.StepGroup()
 	defer sg.Wait()
@@ -484,6 +536,17 @@ func installRunner(
 		return 1
 	}
 
+	config, err := client.GetServerConfig(ctx, &empty.Empty{})
+	if err != nil {
+		ui.Output(
+			"Error getting server config for runner: %s\n\n%s",
+			clierrors.Humanize(err),
+			errInstallRunner,
+			terminal.WithErrorStyle(),
+		)
+		return 1
+	}
+
 	// Build a serverconfig that uses the advertise addr and includes
 	// the token we just requested.
 	connConfig := &serverconfig.Client{
@@ -496,13 +559,15 @@ func installRunner(
 
 	// Install!
 	s.Update("Installing runner...")
-	err = p.InstallRunner(ctx, &serverinstall.InstallRunnerOpts{
+	err = p.InstallRunner(ctx, &runnerinstall.InstallOpts{
 		Log:             log,
 		UI:              ui,
-		AuthToken:       resp.Token,
-		AdvertiseAddr:   advertiseAddr,
+		Cookie:          config.Config.Cookie,
+		ServerAddr:      advertiseAddr.Addr,
 		AdvertiseClient: connConfig,
+		Id:              installutil.Id,
 	})
+
 	if err != nil {
 		ui.Output(
 			"Error installing the runner: %s\n\n%s",
@@ -512,32 +577,44 @@ func installRunner(
 		)
 		return 1
 	}
+	s.Update("Runner %q installed", installutil.Id)
 	s.Done()
 
-	// If this installation platform supports an out-of-the-box ODR
-	// config then we set that up. This enables on-demand runners to
-	// work immediately.
-	if odc, ok := p.(serverinstall.OnDemandRunnerConfigProvider); ok {
-		s = sg.Add("Registering on-demand runner configuration...")
+	err = installutil.AdoptRunner(ctx, ui, client, installutil.Id, advertiseAddr.Addr)
+	if err != nil {
+		ui.Output("Error adopting runner: %s", clierrors.Humanize(err), terminal.WithErrorStyle())
+		return 1
+	}
 
-		odr := odc.OnDemandRunnerConfig()
-		if odr != nil {
+	// NOTE(briancain): Some installers like the Kubernetes Helm install already sets up a runner profile
+	// when the server is installed. For this reason, we shouldn't create another
+	// bootstrap runner profile.
+	if !existingODRConfigSetup || isUpgrade {
+		// If this installation platform supports an out-of-the-box ODR
+		// config then we set that up. This enables on-demand runners to
+		// work immediately.
+		if odc, ok := p.(installutil.OnDemandRunnerConfigProvider); ok {
+			s = sg.Add("Registering on-demand runner configuration...")
+
+			if odrConfig == nil {
+				odrConfig = odc.OnDemandRunnerConfig()
+			}
+
+			odrConfig.Name = odrConfig.PluginType + "-bootstrap-profile"
+
 			_, err = client.UpsertOnDemandRunnerConfig(ctx, &pb.UpsertOnDemandRunnerConfigRequest{
-				Config: odr,
+				Config: odrConfig,
 			})
-
 			if err != nil {
-				s.Update("Error creating ondemand runner: %s", err)
-				s.Status(terminal.StatusError)
+				ui.Output("Error creating ondemand runner: %s", clierrors.Humanize(err), terminal.WithErrorStyle())
+				return 1
 			} else {
 				s.Update("Registered ondemand runner!")
 				s.Status(terminal.StatusOK)
 			}
-		} else {
-			s.Update("Install type did not provide an ondemand runner config")
-		}
 
-		s.Done()
+			s.Done()
+		}
 	}
 
 	return 0

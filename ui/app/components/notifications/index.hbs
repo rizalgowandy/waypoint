@@ -1,3 +1,8 @@
+{{!
+  Copyright (c) HashiCorp, Inc.
+  SPDX-License-Identifier: BUSL-1.1
+}}
+
 <div class='notifications notifications--bottom notifications--left' aria-live='polite'>
   {{#each this.flashMessages.queue key='initializedTime' as |flash|}}
     <Notifications::Notification @flash={{flash}} />

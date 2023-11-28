@@ -1,11 +1,14 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
 	"context"
 	"sort"
+	"strconv"
 
 	"github.com/dustin/go-humanize"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/posener/complete"
 
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
@@ -56,7 +59,7 @@ func (c *BuildListCommand) Run(args []string) int {
 
 		const bullet = "●"
 
-		table := terminal.NewTable("", "ID", "Workspace", "Builder", "Started", "Completed")
+		table := terminal.NewTable("", "ID", "Workspace", "Builder", "Started", "Completed", "Pipeline")
 		for _, b := range resp.Builds {
 			// Determine our bullet
 			status := ""
@@ -77,11 +80,23 @@ func (c *BuildListCommand) Run(args []string) int {
 
 			// Parse our times
 			var startTime, completeTime string
-			if t, err := ptypes.Timestamp(b.Status.StartTime); err == nil {
-				startTime = humanize.Time(t)
+			if b.Status.StartTime != nil {
+				startTime = humanize.Time(b.Status.StartTime.AsTime())
 			}
-			if t, err := ptypes.Timestamp(b.Status.CompleteTime); err == nil {
-				completeTime = humanize.Time(t)
+			if b.Status.CompleteTime != nil {
+				completeTime = humanize.Time(b.Status.CompleteTime.AsTime())
+			}
+
+			var pipeline string
+			j, err := c.project.Client().GetJob(c.Ctx, &pb.GetJobRequest{
+				JobId: b.JobId,
+			})
+			if err != nil {
+				app.UI.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
+				return err
+			}
+			if j.Pipeline != nil {
+				pipeline = "name: " + j.Pipeline.PipelineName + ", run: " + strconv.FormatUint(j.Pipeline.RunSequence, 10) + ", step: " + j.Pipeline.Step
 			}
 
 			table.Rich([]string{
@@ -91,6 +106,7 @@ func (c *BuildListCommand) Run(args []string) int {
 				b.Component.Name,
 				startTime,
 				completeTime,
+				pipeline,
 			}, []string{
 				statusColor,
 			})

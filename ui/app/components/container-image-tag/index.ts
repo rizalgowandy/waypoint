@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import Component from '@glimmer/component';
 import { inject as service } from '@ember/service';
 import ApiService from 'waypoint/services/api';
@@ -13,11 +18,20 @@ export default class extends Component<Args> {
 
   get states(): unknown {
     return this.args.statusReport.resourcesList
-      ? this.args.statusReport.resourcesList.map((r) => JSON.parse(r.stateJson ?? '{}'))
+      ? this.args.statusReport.resourcesList.map(stateFromResource)
       : [];
   }
 
   get imageRefs(): ReturnType<typeof findImageRefs> {
     return findImageRefs(this.states);
+  }
+}
+
+function stateFromResource(resource: StatusReport.Resource.AsObject): unknown {
+  try {
+    return JSON.parse(resource.stateJson);
+  } catch (error) {
+    console.error('Could not parse stateJson for resource', resource);
+    return {};
   }
 }

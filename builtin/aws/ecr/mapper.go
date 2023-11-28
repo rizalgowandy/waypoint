@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ecr
 
 import (
@@ -9,9 +12,15 @@ func ECRImageMapper(src *Image) *docker.Image {
 	return &docker.Image{
 		Image: src.Image,
 		Tag:   src.Tag,
-
 		Location: &docker.Image_Registry{
 			Registry: &docker.Image_RegistryLocation{},
 		},
+	}
+}
+
+func DockerToEcrImageMapper(src *docker.Image) *Image {
+	return &Image{
+		Image: src.Image,
+		Tag:   src.Tag,
 	}
 }

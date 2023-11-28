@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
@@ -16,6 +19,7 @@ import (
 	"github.com/hashicorp/waypoint/internal/clierrors"
 	"github.com/hashicorp/waypoint/internal/clisnapshot"
 	"github.com/hashicorp/waypoint/internal/pkg/flag"
+	"github.com/hashicorp/waypoint/internal/runnerinstall"
 	"github.com/hashicorp/waypoint/internal/serverinstall"
 )
 
@@ -46,8 +50,21 @@ func (c *UninstallCommand) Run(args []string) int {
 	}
 
 	if !c.autoApprove {
-		c.ui.Output(strings.TrimSpace(autoApproveMsg), terminal.WithErrorStyle())
-		return 1
+		proceed, err := c.ui.Input(&terminal.Input{
+			Prompt: "Do you really want to uninstall the Waypoint server? Only 'yes' will be accepted to approve: ",
+			Style:  "",
+			Secret: false,
+		})
+		if err != nil {
+			c.ui.Output(
+				"Error uninstalling server: %s",
+				clierrors.Humanize(err),
+				terminal.WithErrorStyle(),
+			)
+		} else if strings.ToLower(proceed) != "yes" {
+			c.ui.Output(strings.TrimSpace(uninstallApproveMsg), terminal.WithErrorStyle())
+			return 1
+		}
 	}
 
 	// output the context we'll be uninstalling
@@ -181,10 +198,15 @@ func (c *UninstallCommand) Run(args []string) int {
 		Log: log,
 		UI:  c.ui,
 	}
+	runnerOpts := &runnerinstall.InstallOpts{
+		Log: log,
+		UI:  c.ui,
+		Id:  "static", // static is the name of the initial runner installed
+	}
 
 	// We first uninstall any runners.
 	log.Trace("calling UninstallRunner")
-	if err := p.UninstallRunner(ctx, installOpts); err != nil {
+	if err := p.UninstallRunner(ctx, runnerOpts); err != nil {
 		if !c.ignoreRunnerError {
 			c.ui.Output(
 				"Error uninstalling runners from %s: %s\n\n"+
@@ -260,8 +282,6 @@ Usage: waypoint server uninstall [options]
   specified, the CLI command will attempt to retrieve the platform defined in
   the server context.
 
-  '-auto-approve' is required.
-
   By default, this command deletes the default server's context and creates 
   a server snapshot.
 
@@ -282,7 +302,7 @@ func (c *UninstallCommand) Flags() *flag.Sets {
 			Name:    "auto-approve",
 			Target:  &c.autoApprove,
 			Default: false,
-			Usage:   "Auto-approve server uninstallation.",
+			Usage:   "Auto-approve server uninstallation. If unset, confirmation will be requested.",
 		})
 
 		f.BoolVar(&flag.BoolVar{
@@ -342,8 +362,7 @@ func (c *UninstallCommand) Flags() *flag.Sets {
 }
 
 var (
-	autoApproveMsg = strings.TrimSpace(`
+	uninstallApproveMsg = strings.TrimSpace(`
 Uninstalling Waypoint server requires approval.
-Rerun the command with -auto-approve to continue with the uninstall.
 `)
 )

@@ -1,13 +1,15 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
 	"fmt"
 
 	"github.com/dustin/go-humanize"
-	"github.com/golang/protobuf/jsonpb"
-	"github.com/golang/protobuf/ptypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
 	"github.com/hashicorp/waypoint/internal/clierrors"
@@ -58,21 +60,22 @@ func (c *JobInspectCommand) Run(args []string) int {
 	}
 
 	if c.flagJson {
-		var m jsonpb.Marshaler
-		m.Indent = "\t"
-		str, err := m.MarshalToString(resp)
+		data, err := protojson.MarshalOptions{
+			Indent: "\t",
+		}.Marshal(resp)
 		if err != nil {
 			c.ui.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
 			return 1
 		}
 
-		fmt.Println(str)
+		fmt.Println(string(data))
 		return 0
 	}
 
 	var op string
-	// Job_Noop seems to be missing the isJob_operation method
 	switch resp.Operation.(type) {
+	case *pb.Job_Noop_:
+		op = "Noop"
 	case *pb.Job_Build:
 		op = "Build"
 	case *pb.Job_Push:
@@ -107,8 +110,14 @@ func (c *JobInspectCommand) Run(args []string) int {
 		op = "StartTask"
 	case *pb.Job_StopTask:
 		op = "StopTask"
+	case *pb.Job_WatchTask:
+		op = "WatchTask"
 	case *pb.Job_Init:
 		op = "Init"
+	case *pb.Job_PipelineStep:
+		op = "PipelineStep"
+	case *pb.Job_DestroyProject:
+		op = "DestroyProject"
 	default:
 		op = "Unknown"
 	}
@@ -139,16 +148,39 @@ func (c *JobInspectCommand) Run(args []string) int {
 		targetRunner = target.Id.Id
 	}
 
+	var queueTime string
+	if resp.QueueTime != nil {
+		queueTime = humanize.Time(resp.QueueTime.AsTime())
+	}
+
 	var completeTime string
-	if time, err := ptypes.Timestamp(resp.CompleteTime); err == nil {
-		completeTime = humanize.Time(time)
+	if resp.CompleteTime != nil {
+		completeTime = humanize.Time(resp.CompleteTime.AsTime())
 	}
 	var cancelTime string
-	if time, err := ptypes.Timestamp(resp.CancelTime); err == nil {
-		cancelTime = humanize.Time(time)
+	if resp.CancelTime != nil {
+		cancelTime = humanize.Time(resp.CancelTime.AsTime())
+	}
+
+	// job had an error! Let's show the message
+	var errMsg string
+	if resp.Error != nil {
+		errMsg = resp.Error.Message
 	}
 
 	c.ui.Output("Job Configuration", terminal.WithHeaderStyle())
+	appProjectName := resp.GetApplication().GetProject()
+	if appProjectName == "" {
+		appProjectName = "deleted"
+	}
+	appName := resp.GetApplication().GetApplication()
+	if appName == "" {
+		appName = "deleted"
+	}
+	workspaceName := resp.GetWorkspace().GetWorkspace()
+	if workspaceName == "" {
+		workspaceName = "deleted"
+	}
 	c.ui.NamedValues([]terminal.NamedValue{
 		{
 			Name: "ID", Value: resp.Id,
@@ -160,7 +192,44 @@ func (c *JobInspectCommand) Run(args []string) int {
 			Name: "Operation", Value: op,
 		},
 		{
+			Name: "Target Runner", Value: targetRunner,
+		},
+		{
+			Name: "Workspace", Value: workspaceName,
+		},
+		{
+			Name: "Project", Value: appProjectName,
+		},
+		{
+			Name: "Application", Value: appName,
+		},
+	}, terminal.WithInfoStyle())
+
+	if resp.Pipeline != nil {
+		c.ui.Output("Pipeline Info", terminal.WithHeaderStyle())
+		c.ui.NamedValues([]terminal.NamedValue{
+			{
+				Name: "Name", Value: resp.Pipeline.PipelineName,
+			},
+			{
+				Name: "ID", Value: resp.Pipeline.PipelineId,
+			},
+			{
+				Name: "Step", Value: resp.Pipeline.Step,
+			},
+			{
+				Name: "Run Sequence", Value: resp.Pipeline.RunSequence,
+			},
+		}, terminal.WithInfoStyle())
+	}
+
+	c.ui.Output("Job Results", terminal.WithHeaderStyle())
+	c.ui.NamedValues([]terminal.NamedValue{
+		{
 			Name: "State", Value: jobState,
+		},
+		{
+			Name: "Queue Time", Value: queueTime,
 		},
 		{
 			Name: "Complete Time", Value: completeTime,
@@ -169,16 +238,7 @@ func (c *JobInspectCommand) Run(args []string) int {
 			Name: "Cancel Time", Value: cancelTime,
 		},
 		{
-			Name: "Target Runner", Value: targetRunner,
-		},
-		{
-			Name: "Workspace", Value: resp.Workspace.Workspace,
-		},
-		{
-			Name: "Project", Value: resp.Application.Project,
-		},
-		{
-			Name: "Application", Value: resp.Application.Application,
+			Name: "Error Message", Value: errMsg,
 		},
 	}, terminal.WithInfoStyle())
 

@@ -1,3 +1,8 @@
+{{!
+  Copyright (c) HashiCorp, Inc.
+  SPDX-License-Identifier: BUSL-1.1
+}}
+
 {{#if this.variablesList}}
   <ul class="variables-list">
     <li>
@@ -13,7 +18,7 @@
     {{/each}}
   </ul>
   <Pds::ButtonSet>
-    <Pds::Button data-test-input-variables-add-variable disabled={{this.isCreating}} @variant="primary" {{on "click" this.addVariable}}>
+    <Pds::Button data-test-input-variables-add-variable disabled={{this.isCreating}} @variant="primary" class="button--add-variable" {{on "click" this.addVariable}}>
       <FlightIcon @name="plus" />{{t "form.project_variables_settings.button_apply"}}
     </Pds::Button>
   </Pds::ButtonSet>

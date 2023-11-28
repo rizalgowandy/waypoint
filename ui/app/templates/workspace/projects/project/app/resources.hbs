@@ -1,6 +1,12 @@
-{{#if @model.length}}
+{{!
+  Copyright (c) HashiCorp, Inc.
+  SPDX-License-Identifier: BUSL-1.1
+}}
+
+{{page-title "Resources"}}
+{{#if @model.resources.length}}
   <ResourcesTableExtended
-    @resources={{@model}}
+    @resources={{@model.resources}}
   />
 {{else}}
   <EmptyState>

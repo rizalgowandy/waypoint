@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package datasource
 
 import (
@@ -17,8 +20,6 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-git/go-git/v5/storage/memory"
-	"github.com/golang/protobuf/ptypes"
-	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
@@ -26,6 +27,7 @@ import (
 	cryptossh "golang.org/x/crypto/ssh"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
@@ -59,6 +61,7 @@ func (s *GitSource) ProjectSource(body hcl.Body, ctx *hcl.EvalContext) (*pb.Job_
 		Path:                     cfg.Path,
 		IgnoreChangesOutsidePath: cfg.IgnoreChangesOutsidePath,
 		Ref:                      cfg.Ref,
+		RecurseSubmodules:        cfg.RecurseSubmodules,
 	}
 	switch {
 	case cfg.Username != "":
@@ -169,11 +172,14 @@ func (s *GitSource) Get(
 		return os.RemoveAll(td)
 	}
 
-	// Output
+	// Output git info
+	// NOTE(briancain): The leading whitespace here is to fit the formatting
+	// for when we display the commit, timestamp, and message later on so that the
+	// messages are all aligned.
 	ui.Output("Cloning data from Git", terminal.WithHeaderStyle())
-	ui.Output("URL: %s", source.Git.Url, terminal.WithInfoStyle())
+	ui.Output("       URL: %s", source.Git.Url, terminal.WithInfoStyle())
 	if source.Git.Ref != "" {
-		ui.Output("Ref: %s", source.Git.Ref, terminal.WithInfoStyle())
+		ui.Output("       Ref: %s", source.Git.Ref, terminal.WithInfoStyle())
 	}
 
 	// Setup auth information
@@ -188,6 +194,11 @@ func (s *GitSource) Get(
 		URL:      source.Git.Url,
 		Auth:     auth,
 		Progress: &output,
+
+		// Note: we don't set RecurseSubmodules here because if we're checking
+		// out a ref without submodules or with different submodules, we
+		// don't want to waste time recursing HEAD. We fetch submodules
+		// later.
 	})
 	if err != nil {
 		closer()
@@ -237,6 +248,32 @@ func (s *GitSource) Get(
 		}
 	}
 
+	if depth := source.Git.RecurseSubmodules; depth > 0 {
+		wt, err := repo.Worktree()
+		if err != nil {
+			closer()
+			return "", nil, nil, status.Errorf(codes.Aborted,
+				"Failed to load Git working tree: %s", err)
+		}
+
+		sm, err := wt.Submodules()
+		if err != nil {
+			closer()
+			return "", nil, nil, status.Errorf(codes.Aborted,
+				"Failed to load submodules: %s", err)
+		}
+
+		if err := sm.UpdateContext(ctx, &git.SubmoduleUpdateOptions{
+			Init:              true,
+			Auth:              auth,
+			RecurseSubmodules: git.SubmoduleRescursivity(depth),
+		}); err != nil {
+			closer()
+			return "", nil, nil, status.Errorf(codes.Aborted,
+				"Failed to update submodules: %s", err)
+		}
+	}
+
 	// Get our ref
 	ref, err := repo.Head()
 	if err != nil {
@@ -250,14 +287,9 @@ func (s *GitSource) Get(
 		return "", nil, nil, status.Errorf(codes.Aborted,
 			"Failed to inspect commit information: %s", err)
 	}
-	var commitTs *timestamp.Timestamp
+	var commitTs *timestamppb.Timestamp
 	if v := commit.Author.When; !v.IsZero() {
-		commitTs, err = ptypes.TimestampProto(v)
-		if err != nil {
-			closer()
-			return "", nil, nil, status.Errorf(codes.Aborted,
-				"Failed to inspect commit information: %s", err)
-		}
+		commitTs = timestamppb.New(v)
 	}
 
 	// If we have a path, set it.
@@ -266,11 +298,17 @@ func (s *GitSource) Get(
 		result = filepath.Join(result, p)
 	}
 
+	// Output additinoal git info
+	ui.Output("Git Commit: %s", commit.Hash.String(), terminal.WithInfoStyle())
+	ui.Output(" Timestamp: %s", commitTs.AsTime(), terminal.WithInfoStyle())
+	ui.Output("   Message: %s", commit.Message, terminal.WithInfoStyle())
+
 	return result, &pb.Job_DataSource_Ref{
 		Ref: &pb.Job_DataSource_Ref_Git{
 			Git: &pb.Job_Git_Ref{
-				Commit:    commit.Hash.String(),
-				Timestamp: commitTs,
+				Commit:        commit.Hash.String(),
+				Timestamp:     commitTs,
+				CommitMessage: commit.Message,
 			},
 		},
 	}, closer, nil
@@ -564,7 +602,7 @@ func (s *GitSource) auth(
 	switch authcfg := source.Git.Auth.(type) {
 	case *pb.Job_Git_Basic_:
 		if ui != nil {
-			ui.Output("Auth: username/password", terminal.WithInfoStyle())
+			ui.Output("      Auth: username/password", terminal.WithInfoStyle())
 		}
 		return &http.BasicAuth{
 			Username: authcfg.Basic.Username,
@@ -579,7 +617,7 @@ func (s *GitSource) auth(
 		}
 
 		if ui != nil {
-			ui.Output("Auth: ssh", terminal.WithInfoStyle())
+			ui.Output("      Auth: ssh", terminal.WithInfoStyle())
 		}
 		auth, err := ssh.NewPublicKeys(
 			user,
@@ -617,6 +655,7 @@ type gitConfig struct {
 	SSHKeyPassword           string `hcl:"key_password,optional"`
 	Ref                      string `hcl:"ref,optional"`
 	IgnoreChangesOutsidePath bool   `hcl:"ignore_changes_outside_path,optional"`
+	RecurseSubmodules        uint32 `hcl:"recurse_submodules,optional"`
 }
 
 var _ Sourcer = (*GitSource)(nil)

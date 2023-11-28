@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 /* eslint-disable ember/no-controller-access-in-routes */
 import Route from '@ember/routing/route';
 import { inject as service } from '@ember/service';
@@ -39,7 +44,10 @@ export default class App extends Route {
     return [
       {
         label: model.application.project,
-        icon: 'folder',
+        route: 'workspace.projects.project.apps',
+      },
+      {
+        label: 'Applications',
         route: 'workspace.projects.project.apps',
       },
     ];

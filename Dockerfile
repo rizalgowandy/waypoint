@@ -1,10 +1,13 @@
 # syntax = docker.mirror.hashicorp.services/docker/dockerfile:experimental
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: BUSL-1.1
+
 
 #--------------------------------------------------------------------
 # builder builds the Waypoint binaries
 #--------------------------------------------------------------------
 
-FROM docker.mirror.hashicorp.services/golang:1.17.5-alpine3.15 AS builder
+FROM docker.mirror.hashicorp.services/golang:1.19-alpine3.17 AS builder
 
 RUN apk add --no-cache git gcc libc-dev make
 
@@ -32,7 +35,7 @@ RUN touch /tmp/.keep
 #--------------------------------------------------------------------
 # This target is explicitly invoked from the command line, it's not used
 # by the non-odr stages.
-FROM gcr.io/kaniko-project/executor:v1.6.0 as odr
+FROM gcr.io/kaniko-project/executor:v1.9.1 as odr
 
 COPY --from=builder /tmp/wp-src/waypoint /kaniko/waypoint
 COPY --from=busybox /bin/busybox /kaniko/busybox
@@ -53,7 +56,7 @@ ENTRYPOINT ["/kaniko/waypoint"]
 # final image
 #--------------------------------------------------------------------
 
-FROM docker.mirror.hashicorp.services/alpine:3.15.0
+FROM docker.mirror.hashicorp.services/alpine:3.17.0
 
 # git is for gitrefpretty() and other calls for Waypoint
 RUN apk add --no-cache git

@@ -11,7 +11,7 @@ permissions.
 
 ### Required Parameters
 
-These parameters are used in the [`use` stanza](/docs/waypoint-hcl/use) for this plugin.
+These parameters are used in the [`use` stanza](/waypoint/docs/waypoint-hcl/use) for this plugin.
 
 #### odr_image
 
@@ -20,9 +20,25 @@ Docker image for the Waypoint On-Demand Runners.
 Docker image for the Waypoint On-Demand Runners. This will
 default to the server image with the name (not label) suffixed with '-odr'.".
 
+#### security_group_id
+
+Security Group ID to place the On-Demand Runner task in.
+
+Security Group ID to place the On-Demand Runner task in. This defaults to the security group used for the Waypoint server.
+
+- Type: **string**
+
+#### subnets
+
+List of subnets to place the On-Demand Runner task in.
+
+List of subnets to place the On-Demand Runner task in. This defaults to the list of subnets configured for the Waypoint server and must be either identical or a subset of the subnets used by the Waypoint server.
+
+- Type: **string**
+
 ### Optional Parameters
 
-These parameters are used in the [`use` stanza](/docs/waypoint-hcl/use) for this plugin.
+These parameters are used in the [`use` stanza](/waypoint/docs/waypoint-hcl/use) for this plugin.
 
 #### cluster
 
@@ -78,24 +94,6 @@ AWS region to use. Defaults to the region used for the Waypoint Server.
 - Type: **string**
 - **Optional**
 
-#### security_group_id
-
-Security Group ID to place the On-Demand Runner task in.
-
-Security Group ID to place the On-Demand Runner task in. This defaults to the security group used for the Waypoint server.
-
-- Type: **string**
-- **Optional**
-
-#### subnets
-
-List of subnets to place the On-Demand Runner task in.
-
-List of subnets to place the On-Demand Runner task in. This defaults to the list of subnets configured for the Waypoint server and must be either identical or a subset of the subnets used by the Waypoint server.
-
-- Type: **string**
-- **Optional**
-
 #### task_role_name
 
 The name of the AWS IAM role to apply to the task's Task Role.
@@ -107,7 +105,7 @@ TaskRoleName is the name of the AWS IAM role to apply to the task. This role det
 
 ### Output Attributes
 
-Output attributes can be used in your `waypoint.hcl` as [variables](/docs/waypoint-hcl/variables) via [`artifact`](/docs/waypoint-hcl/variables/artifact) or [`deploy`](/docs/waypoint-hcl/variables/deploy).
+Output attributes can be used in your `waypoint.hcl` as [variables](/waypoint/docs/waypoint-hcl/variables) via [`artifact`](/waypoint/docs/waypoint-hcl/variables/artifact) or [`deploy`](/waypoint/docs/waypoint-hcl/variables/deploy).
 
 #### id
 

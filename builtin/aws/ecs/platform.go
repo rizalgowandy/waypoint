@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ecs
 
 import (
@@ -65,23 +68,29 @@ func (p *Platform) ConfigSet(config interface{}) error {
 	if c.ALB != nil {
 		alb := c.ALB
 		err := utils.Error(validation.ValidateStruct(alb,
-			validation.Field(&alb.CertificateId,
-				validation.Empty.When(alb.ListenerARN != "").Error("certificate cannot be used with listener_arn"),
-			),
+			// ZoneId and FQDN are both used to create a route53 record that points to an ALB.
+			// While we could still create this, if a user is managing their own ALB out of band,
+			// they probably also want to manage the route53 record themselves
+			// too.
 			validation.Field(&alb.ZoneId,
-				validation.Empty.When(alb.ListenerARN != ""),
+				validation.Empty.When(alb.LoadBalancerArn != ""),
 				validation.Required.When(alb.FQDN != ""),
 			),
 			validation.Field(&alb.FQDN,
-				validation.Empty.When(alb.ListenerARN != ""),
+				validation.Empty.When(alb.LoadBalancerArn != ""),
 				validation.Required.When(alb.ZoneId != "").Error("fqdn only valid with zone_id"),
 			),
+
 			validation.Field(&alb.InternalScheme,
-				validation.Nil.When(alb.ListenerARN != "").Error("internal cannot be used with listener_arn"),
+				validation.Nil.When(alb.LoadBalancerArn != "").Error("internal cannot be used with load_balancer_arn"),
 			),
-			validation.Field(&alb.ListenerARN,
-				validation.Empty.When(alb.CertificateId != "" || alb.ZoneId != "" || alb.FQDN != "").Error("listener_arn can not be used with other options"),
+			validation.Field(&alb.LoadBalancerArn,
+				validation.Empty.When(
+					alb.ZoneId != "" ||
+						alb.FQDN != "" ||
+						len(alb.SecurityGroupIDs) >= 1).Error("load_balancer_arn can not be used with other options"),
 			),
+			validation.Field(&alb.SecurityGroupIDs),
 		))
 		if err != nil {
 			return err
@@ -119,6 +128,13 @@ func (p *Platform) ConfigSet(config interface{}) error {
 		))
 		if err != nil {
 			return err
+		}
+	}
+
+	if c.HealthCheck != nil {
+		if c.HealthCheck.Timeout >= c.HealthCheck.Interval {
+			return status.Errorf(codes.FailedPrecondition, "the health check "+
+				"timeout must be less than the interval")
 		}
 	}
 
@@ -168,11 +184,12 @@ func (p *Platform) DefaultReleaserFunc() interface{} {
 	return func() *Releaser { return &Releaser{p: p} }
 }
 
-func (p *Platform) resourceManager(log hclog.Logger, dcr *component.DeclaredResourcesResp) *resource.Manager {
+func (p *Platform) resourceManager(log hclog.Logger, dcr *component.DeclaredResourcesResp, dtr *component.DestroyedResourcesResp) *resource.Manager {
 	return resource.NewManager(
 		resource.WithLogger(log.Named("resource_manager")),
 		resource.WithValueProvider(p.getSession),
 		resource.WithDeclaredResourcesResp(dcr),
+		resource.WithDestroyedResourcesResp(dtr),
 		resource.WithResource(resource.NewResource(
 			resource.WithName("cluster"),
 			resource.WithPlatform(platformName),
@@ -370,7 +387,7 @@ func (p *Platform) Deploy(
 	}
 
 	// Create our resource manager and create
-	rm := p.resourceManager(log, dcr)
+	rm := p.resourceManager(log, dcr, nil)
 	if err := rm.CreateAll(
 		ctx, log, sg, ui, deploymentId, externalIngressPort,
 		src, img, deployConfig, &result,
@@ -390,6 +407,9 @@ func (p *Platform) Deploy(
 
 	albState := rm.Resource("application load balancer").State().(*Resource_Alb)
 	result.LoadBalancerArn = albState.Arn
+
+	listenerState := rm.Resource("alb listener").State().(*Resource_Alb_Listener)
+	result.ListenerArn = listenerState.Arn
 
 	cState := rm.Resource("cluster").State().(*Resource_Cluster)
 	result.Cluster = cState.Name
@@ -414,7 +434,7 @@ func (p *Platform) Status(
 	s := sg.Add("Gathering health report for ecs deployment...")
 	defer s.Abort()
 
-	rm := p.resourceManager(log, nil)
+	rm := p.resourceManager(log, nil, nil)
 
 	// If we don't have resource state, this state is from an older version
 	// and we need to manually recreate it.
@@ -465,6 +485,8 @@ func (p *Platform) Destroy(
 	log hclog.Logger,
 	deployment *Deployment,
 	ui terminal.UI,
+	dcr *component.DeclaredResourcesResp,
+	dtr *component.DestroyedResourcesResp,
 ) error {
 
 	sg := ui.StepGroup()
@@ -473,7 +495,7 @@ func (p *Platform) Destroy(
 	s := sg.Add("Destroying ecs deployment...")
 	defer s.Abort()
 
-	rm := p.resourceManager(log, nil)
+	rm := p.resourceManager(log, dcr, dtr)
 
 	// If we don't have resource state, this state is from an older version
 	// and we need to manually recreate it.
@@ -514,7 +536,7 @@ func (p *Platform) DestroyWorkspace(
 	s := sg.Add("Destroying ecs workspace...")
 	defer s.Abort()
 
-	rm := p.resourceManager(log, nil)
+	rm := p.resourceManager(log, nil, nil)
 
 	// If we don't have resource state, this state is from an older version
 	// and we need to manually recreate it.
@@ -992,6 +1014,8 @@ func (p *Platform) resourceServiceDestroy(
 	return nil
 }
 
+// resourceAlbListenerCreate finds or creates an ALB listener, and ensures that the
+// target group is added to it.
 func (p *Platform) resourceAlbListenerCreate(
 	ctx context.Context,
 	sg terminal.StepGroup,
@@ -1008,7 +1032,7 @@ func (p *Platform) resourceAlbListenerCreate(
 		return nil
 	}
 
-	s := sg.Add("Initiating ALB creation")
+	s := sg.Add("Initiating ALB Listener")
 	defer s.Abort()
 
 	state.TargetGroup = targetGroup
@@ -1023,9 +1047,8 @@ func (p *Platform) resourceAlbListenerCreate(
 	}
 
 	var (
-		certs       []*elbv2.Certificate
-		protocol    = "HTTP"
-		newListener = false
+		certs    []*elbv2.Certificate
+		protocol = "HTTP"
 	)
 
 	if albConfig != nil && albConfig.CertificateId != "" {
@@ -1037,75 +1060,31 @@ func (p *Platform) resourceAlbListenerCreate(
 
 	elbsrv := elbv2.New(sess)
 
+	if alb == nil || alb.Arn == "" {
+		return status.Errorf(codes.InvalidArgument, "cannot create ALB listener - no existing ALB defined.")
+	}
+	log.Info("load-balancer defined", "dns-name", alb.DnsName)
+
+	s.Update("Looking for listeners for ALB %q", alb.Arn)
+	listeners, err := elbsrv.DescribeListenersWithContext(ctx, &elbv2.DescribeListenersInput{
+		LoadBalancerArn: &alb.Arn,
+	})
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to describe listeners for alb (ARN %q): %s", alb.Arn, err)
+	}
+
+	// Check for existing listeners on our specified port
 	var listener *elbv2.Listener
-
-	if albConfig != nil && albConfig.ListenerARN != "" {
-		s.Update("Describing requested ALB listener (ARN: %s)", albConfig.ListenerARN)
-
-		state.Managed = false
-
-		out, err := elbsrv.DescribeListenersWithContext(ctx, &elbv2.DescribeListenersInput{
-			ListenerArns: []*string{aws.String(albConfig.ListenerARN)},
-		})
-		if err != nil {
-			return status.Errorf(codes.Internal, "failed to describe requested listener ARN %q: %s", albConfig.ListenerARN, err)
-		}
-
-		listener = out.Listeners[0]
-		s.Update("Using configured ALB Listener: %s (load-balancer: %s)",
-			*listener.ListenerArn, *listener.LoadBalancerArn)
-	} else {
-		state.Managed = true
-
-		if alb == nil || alb.Arn == "" {
-			return status.Errorf(codes.InvalidArgument, "cannot create ALB listener - no existing ALB defined.")
-		}
-
-		s.Update("No ALB listener specified - looking for listeners for ALB %q", alb.Name)
-		listeners, err := elbsrv.DescribeListenersWithContext(ctx, &elbv2.DescribeListenersInput{
-			LoadBalancerArn: &alb.Arn,
-		})
-		if err != nil {
-			return status.Errorf(codes.Internal, "failed to describe listeners for alb (ARN %q): %s", alb.Arn, err)
-		}
-
-		if len(listeners.Listeners) > 0 {
-			listener = listeners.Listeners[0]
-			s.Update("Using existing ALB Listener (ARN: %q)", *listener.ListenerArn)
-		} else {
-			s.Update("Creating new ALB Listener")
-			newListener = true
-
-			log.Info("load-balancer defined", "dns-name", alb.DnsName)
-
-			tgs[0].Weight = aws.Int64(100)
-			lo, err := elbsrv.CreateListenerWithContext(ctx, &elbv2.CreateListenerInput{
-				LoadBalancerArn: &alb.Arn,
-				Port:            aws.Int64(int64(externalIngressPort)),
-				Protocol:        aws.String(protocol),
-				Certificates:    certs,
-				DefaultActions: []*elbv2.Action{
-					{
-						ForwardConfig: &elbv2.ForwardActionConfig{
-							TargetGroups: tgs,
-						},
-						Type: aws.String("forward"),
-					},
-				},
-			})
-			if err != nil {
-				return status.Errorf(codes.Internal, "failed to create listener: %s", err)
-			}
-
-			listener = lo.Listeners[0]
-
-			s.Update("Created ALB Listener")
-			log.Debug("Created ALB Listener", "arn", *listener.ListenerArn)
+	for _, l := range listeners.Listeners {
+		if *l.Port == int64(externalIngressPort) {
+			listener = l
 		}
 	}
-	state.Arn = *listener.ListenerArn
 
-	if !newListener {
+	if listener != nil {
+		// Found an existing listener!
+		s.Update("Modifying existing ALB Listener to introduce target group")
+
 		def := listener.DefaultActions
 
 		if len(def) > 0 && def[0].ForwardConfig != nil {
@@ -1117,13 +1096,40 @@ func (p *Platform) resourceAlbListenerCreate(
 			}
 		}
 
-		s.Update("Modifying ALB Listener to introduce target group")
+		in := &elbv2.ModifyListenerInput{
+			ListenerArn: listener.ListenerArn,
+			DefaultActions: []*elbv2.Action{
+				{
+					ForwardConfig: &elbv2.ForwardActionConfig{
+						TargetGroups: tgs,
+					},
+					Type: aws.String("forward"),
+				},
+			},
 
-		_, err := elbsrv.ModifyListenerWithContext(ctx, &elbv2.ModifyListenerInput{
-			ListenerArn:  listener.ListenerArn,
+			// Setting these on every deployment so that we pick up any potential changes
+			// in the waypoint.hcl config
 			Port:         aws.Int64(int64(externalIngressPort)),
 			Protocol:     aws.String(protocol),
 			Certificates: certs,
+		}
+
+		_, err = elbsrv.ModifyListenerWithContext(ctx, in)
+		if err != nil {
+			return status.Errorf(codes.Internal, "failed to introduce new target group to existing ALB listener: %s", err)
+		}
+
+		s.Update("Modified ALB Listener to introduce target group")
+	} else {
+		s.Update("Creating new ALB Listener")
+		state.Managed = true
+
+		tgs[0].Weight = aws.Int64(100)
+		lo, err := elbsrv.CreateListenerWithContext(ctx, &elbv2.CreateListenerInput{
+			LoadBalancerArn: &alb.Arn,
+			Port:            aws.Int64(int64(externalIngressPort)),
+			Protocol:        aws.String(protocol),
+			Certificates:    certs,
 			DefaultActions: []*elbv2.Action{
 				{
 					ForwardConfig: &elbv2.ForwardActionConfig{
@@ -1134,11 +1140,16 @@ func (p *Platform) resourceAlbListenerCreate(
 			},
 		})
 		if err != nil {
-			return status.Errorf(codes.Internal, "failed to introduce new target group to existing ALB listener: %s", err)
+			return status.Errorf(codes.Internal, "failed to create listener: %s", err)
 		}
 
-		s.Update("Modified ALB Listener to introduce target group")
+		listener = lo.Listeners[0]
+
+		s.Update("Created ALB Listener")
+		log.Debug("Created ALB Listener", "arn", *listener.ListenerArn)
 	}
+
+	state.Arn = *listener.ListenerArn
 
 	s.Done()
 	return nil
@@ -1300,14 +1311,70 @@ func (p *Platform) resourceTargetGroupCreate(
 
 	state.Port = p.config.ServicePort
 
-	ctg, err := elbsrv.CreateTargetGroupWithContext(ctx, &elbv2.CreateTargetGroupInput{
+	createTargetGroupInput := &elbv2.CreateTargetGroupInput{
 		HealthCheckEnabled: aws.Bool(true),
 		Name:               &targetGroupName,
 		Port:               &state.Port,
-		Protocol:           aws.String("HTTP"),
 		TargetType:         aws.String("ip"),
 		VpcId:              &subnets.Subnets.VpcId,
-	})
+		Matcher:            &elbv2.Matcher{},
+	}
+
+	// default to HTTP
+	createTargetGroupInput.Protocol = aws.String("HTTP")
+	if p.config.Protocol != "" {
+		createTargetGroupInput.Protocol = aws.String(p.config.Protocol)
+	}
+
+	if p.config.ProtocolVersion != "" {
+		createTargetGroupInput.ProtocolVersion = aws.String(p.config.ProtocolVersion)
+	}
+
+	if p.config.HealthCheck != nil {
+		if p.config.HealthCheck.Protocol != "" {
+			createTargetGroupInput.HealthCheckProtocol = aws.String(p.config.HealthCheck.Protocol)
+		}
+
+		if p.config.HealthCheck.Path != "" {
+			createTargetGroupInput.HealthCheckPath = aws.String(p.config.HealthCheck.Path)
+		}
+
+		createTargetGroupInput.HealthCheckTimeoutSeconds = aws.Int64(5)
+		if p.config.HealthCheck.Timeout != 0 {
+			createTargetGroupInput.HealthCheckTimeoutSeconds = aws.Int64(p.config.HealthCheck.Timeout)
+		}
+
+		createTargetGroupInput.HealthCheckIntervalSeconds = aws.Int64(30)
+		if p.config.HealthCheck.Interval != 0 {
+			createTargetGroupInput.HealthCheckIntervalSeconds = aws.Int64(p.config.HealthCheck.Interval)
+		}
+
+		if *createTargetGroupInput.HealthCheckIntervalSeconds < *createTargetGroupInput.HealthCheckTimeoutSeconds {
+			return status.Errorf(codes.InvalidArgument, fmt.Sprintf("Health check interval cannot be shorter than the timeout"))
+		}
+
+		if p.config.HealthCheck.HealthyThresholdCount != 0 {
+			createTargetGroupInput.HealthyThresholdCount = aws.Int64(p.config.HealthCheck.HealthyThresholdCount)
+		} else {
+			createTargetGroupInput.HealthyThresholdCount = aws.Int64(5)
+		}
+
+		if p.config.HealthCheck.UnhealthyThresholdCount != 0 {
+			createTargetGroupInput.UnhealthyThresholdCount = aws.Int64(p.config.HealthCheck.UnhealthyThresholdCount)
+		} else {
+			createTargetGroupInput.UnhealthyThresholdCount = aws.Int64(2)
+		}
+
+		if p.config.HealthCheck.GRPCCode != "" {
+			createTargetGroupInput.Matcher.GrpcCode = aws.String(p.config.HealthCheck.GRPCCode)
+		}
+
+		if p.config.HealthCheck.HTTPCode != "" {
+			createTargetGroupInput.Matcher.HttpCode = aws.String(p.config.HealthCheck.HTTPCode)
+		}
+	}
+
+	ctg, err := elbsrv.CreateTargetGroupWithContext(ctx, createTargetGroupInput)
 	if err != nil || ctg == nil || len(ctg.TargetGroups) == 0 {
 		return status.Errorf(codes.Internal, "failed to create target group: %s", err)
 	}
@@ -1316,7 +1383,6 @@ func (p *Platform) resourceTargetGroupCreate(
 	state.Arn = *ctg.TargetGroups[0].TargetGroupArn
 
 	s.Update("Created target group %s", state.Name)
-
 	s.Done()
 	return nil
 }
@@ -1338,21 +1404,91 @@ func (p *Platform) resourceTargetGroupDestroy(
 		return nil
 	}
 
-	s := sg.Add("Deleting target group %s", state.Name)
+	s := sg.Add("Getting details for target group %s", state.Name)
 	defer s.Abort()
 
 	elbsrv := elbv2.New(sess)
 
+	groups, err := elbsrv.DescribeTargetGroups(&elbv2.DescribeTargetGroupsInput{
+		TargetGroupArns: aws.StringSlice([]string{state.Arn}),
+	})
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to describe target group %s (ARN: %q): %s", state.Name, state.Arn, err)
+	} else if len(groups.TargetGroups) > 1 {
+		return status.Errorf(codes.FailedPrecondition, "only one target group should be returned for ARN %q, but found %d matching target groups", state.Arn, len(groups.TargetGroups))
+	}
+
+	s.Update("Retrieved target group details")
+	s.Done()
+
+	s = sg.Add("Checking if target group %q has an active ALB listener", *groups.TargetGroups[0].TargetGroupName)
+	// If there are any load balancers routing to the target group, loop until
+	// the listeners are deleted by resourceAlbListenerDestroy, for a max of
+	// 5 minutes
+	var listenerArns []string
+	describeListenersInput := &elbv2.DescribeListenersInput{}
+	d := time.Now().Add(time.Minute * time.Duration(5))
+	ctx, cancel := context.WithDeadline(ctx, d)
+	defer cancel()
+	ticker := time.NewTicker(5 * time.Second)
+	listenerDeleted := false
+	for !listenerDeleted {
+		for _, lb := range groups.TargetGroups[0].LoadBalancerArns {
+		CHECK_LISTENERS:
+			if len(listenerArns) > 0 {
+				describeListenersInput.ListenerArns = aws.StringSlice(listenerArns)
+			} else {
+				describeListenersInput.LoadBalancerArn = lb
+			}
+
+			listeners, err := elbsrv.DescribeListeners(describeListenersInput)
+
+			log.Debug("inspecting listeners", "alb_arn", lb)
+			if err != nil {
+				return status.Errorf(codes.Internal, "failed to describe listeners for ALB (ARN: %q): %s", *lb, err)
+			}
+			for _, listener := range listeners.Listeners {
+				log.Debug("inspecting listener", "listener_arn", listener.ListenerArn)
+				for _, defaultAction := range listener.DefaultActions {
+					if *defaultAction.TargetGroupArn == state.Arn {
+						s.Update("Found active ALB listener with ARN " + *listener.ListenerArn)
+						// Save the listener ARN to search by it instead of
+						// needlessly looping through all listeners on the
+						// LB again. We hard-assign this to the first index
+						// of the slice because there should be only one.
+						listenerArns[0] = *listener.ListenerArn
+						select {
+						case <-ticker.C: // wait 5 seconds before checking again
+						case <-ctx.Done():
+							return status.Errorf(codes.Aborted, "Context "+
+								"cancelled from timeout checking if listener for "+
+								"target group was deleted: %s", ctx.Err())
+						}
+						goto CHECK_LISTENERS
+					}
+				}
+			}
+		}
+		// We've checked all of the possible permutations of ALBs and
+		// listeners, but none of the DefaultActions point to our target
+		// group - if there was a listener, it's gone now.
+		listenerDeleted = true
+	}
+
+	s.Update("ALB listener for target group is deleted")
+	s.Done()
+
+	s = sg.Add("Deleting target group...")
 	// Destroying the listener earlier should have deregistered this target group, so it should be safe
 	// to just delete
-	_, err := elbsrv.DeleteTargetGroupWithContext(ctx, &elbv2.DeleteTargetGroupInput{
+	_, err = elbsrv.DeleteTargetGroupWithContext(ctx, &elbv2.DeleteTargetGroupInput{
 		TargetGroupArn: &state.Arn,
 	})
 	if err != nil {
 		// This doesn't seem to return an error if the target group does not exist.
 		return status.Errorf(codes.Internal, "failed to delete target group %s (ARN: %q): %s", state.Name, state.Arn, err)
 	}
-
+	s.Update("Target group deleted")
 	s.Done()
 	return nil
 }
@@ -1628,23 +1764,27 @@ func (p *Platform) resourceAlbCreate(
 	subnets *Resource_AlbSubnets, // Required because we need to know which VPC we're in, and subnets discover it.
 	state *Resource_Alb,
 ) error {
+	s := sg.Add("Initiating ALB creation")
+	defer s.Abort()
+
 	if p.config.DisableALB {
-		log.Debug("ALB disabled - skipping target group creation")
+		s.Update("ALB disabled - skipping ALB")
+		s.Done()
 		return nil
 	}
 
 	albConfig := p.config.ALB
 
-	if albConfig != nil && albConfig.ListenerARN != "" {
-		log.Debug("Existing ALB listener specified - no need to create or discover an ALB")
+	if albConfig != nil && albConfig.LoadBalancerArn != "" {
+		s.Update("Existing ALB specified - no need to create or discover an ALB")
+		s.Done()
+		state.Managed = false
+		state.Arn = albConfig.LoadBalancerArn
 		return nil
 	}
 
 	// If not using an existing listener, the load balancer is owned by waypoint
 	state.Managed = true
-
-	s := sg.Add("Initiating ALB creation")
-	defer s.Abort()
 
 	var certs []*elbv2.Certificate
 	if albConfig != nil && albConfig.CertificateId != "" {
@@ -1701,6 +1841,16 @@ func (p *Platform) resourceAlbCreate(
 			Subnets:        subnetIds,
 			SecurityGroups: securityGroupIds,
 			Scheme:         &scheme,
+			Tags: []*elbv2.Tag{
+				{
+					Key:   aws.String("waypoint_managed"),
+					Value: aws.String("true"),
+				},
+				{
+					Key:   aws.String("waypoint_app"),
+					Value: aws.String(src.App),
+				},
+			},
 		})
 		if err != nil {
 			return status.Errorf(codes.Internal, "failed to create ALB %q: %s", lbName, err)
@@ -1712,7 +1862,6 @@ func (p *Platform) resourceAlbCreate(
 	}
 	state.Arn = *lb.LoadBalancerArn
 
-	state.Arn = *lb.LoadBalancerArn
 	state.DnsName = *lb.DNSName
 	state.CanonicalHostedZoneId = *lb.CanonicalHostedZoneId
 
@@ -1739,15 +1888,47 @@ func (p *Platform) resourceAlbDestroy(
 		return nil
 	}
 
-	s := sg.Add("Initializing ALB deletion")
+	s := sg.Add("Checking if ALB is managed by Waypoint")
 	defer s.Abort()
-
-	s.Update("Deleting ALB %s", state.DnsName)
 
 	elbsrv := elbv2.New(sess)
 	input := elbv2.DeleteLoadBalancerInput{LoadBalancerArn: &state.Arn}
 
-	_, err := elbsrv.DeleteLoadBalancer(&input)
+	loadBalancers, err := elbsrv.DescribeLoadBalancers(&elbv2.DescribeLoadBalancersInput{
+		LoadBalancerArns: []*string{&state.Arn},
+	})
+	if err != nil {
+		log.Error("error getting ALB details", "err", err.Error())
+		return status.Errorf(codes.Internal, "failed to get ALB details: %s", err)
+	}
+	for _, loadBalancer := range loadBalancers.LoadBalancers {
+		tdo, err := elbsrv.DescribeTags(&elbv2.DescribeTagsInput{ResourceArns: aws.StringSlice([]string{
+			*loadBalancer.LoadBalancerArn,
+		})})
+		if err != nil {
+			return status.Errorf(codes.Internal, "failed to get ALB with ARN %s tags: %s", *loadBalancer.LoadBalancerArn, err)
+		}
+
+		for _, tagDescription := range tdo.TagDescriptions {
+			for _, tag := range tagDescription.Tags {
+				if *tag.Key == "waypoint_managed" && *tag.Value == "true" {
+					goto DELETE_ALB
+				}
+			}
+		}
+		// If we reach this point, we've checked all of the tags on the ALB,
+		// and none of them indicate the ALB is managed by Waypoint
+		log.Debug("ALB not created by Waypoint - skipping ALB deletion")
+		s.Update("ALB is not managed by Waypoint - skipping ALB deletion")
+		s.Done()
+		return nil
+	}
+DELETE_ALB:
+	s.Update("ALB is managed by Waypoint - proceeding with deletion")
+	s.Done()
+
+	s = sg.Add("Deleting ALB %s", state.DnsName)
+	_, err = elbsrv.DeleteLoadBalancer(&input)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to remove ALB %s: %s", state.DnsName, err)
 	}
@@ -1970,6 +2151,15 @@ func (p *Platform) resourceExternalSecurityGroupsCreate(
 	name := fmt.Sprintf("%s-inbound", src.App)
 	s := sg.Add("Initiating creation of external security group named %s", name)
 	defer s.Abort()
+
+	if p.config.ALB != nil && p.config.ALB.SecurityGroupIDs != nil {
+		s.Update("Using specified ALB security group IDs")
+		for _, sgId := range p.config.SecurityGroupIDs {
+			state.SecurityGroups = append(state.SecurityGroups, &Resource_SecurityGroup{Id: *sgId, Managed: false})
+		}
+		s.Done()
+		return nil
+	}
 
 	protocol := "tcp"
 	cidr := "0.0.0.0/0"
@@ -2489,34 +2679,29 @@ func (p *Platform) loadResourceManagerState(
 	}
 	rm.Resource("target group").SetState(&targetGroupResource)
 
-	// Restore state of ALB listener. Difficult because it may only be defined on the load balancer.
+	// Restore state of ALB listener by inspecting the load balancer
 	var listenerResource Resource_Alb_Listener
 	listenerResource.TargetGroup = &targetGroupResource
-	if p.config.ALB != nil && p.config.ALB.ListenerARN != "" {
-		listenerResource.Arn = p.config.ALB.ListenerARN
-		listenerResource.Managed = false
-		log.Debug("Using existing listener", "arn", listenerResource.Arn)
-	} else {
-		listenerResource.Managed = true
-		s.Update("Describing load balancer %s", deployment.LoadBalancerArn)
-		sess, err := p.getSession(log)
-		if err != nil {
-			return status.Errorf(codes.Internal, "failed to get aws session: %s", err)
-		}
-		elbsrv := elbv2.New(sess)
 
-		listeners, err := elbsrv.DescribeListenersWithContext(ctx, &elbv2.DescribeListenersInput{
-			LoadBalancerArn: &deployment.LoadBalancerArn,
-		})
-		if err != nil {
-			return status.Errorf(codes.Internal, "failed to describe listeners for ALB %q: %s", deployment.LoadBalancerArn, err)
-		}
-		if len(listeners.Listeners) == 0 {
-			s.Update("No listeners found for ALB %q", deployment.LoadBalancerArn)
-		} else {
-			listenerResource.Arn = *listeners.Listeners[0].ListenerArn
-			s.Update("Found existing listener (ARN: %q)", listenerResource.Arn)
-		}
+	listenerResource.Managed = false // Impossible to know now if we created this initially, so this is the safe choice
+	s.Update("Describing load balancer %s", deployment.LoadBalancerArn)
+	sess, err := p.getSession(log)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to get aws session: %s", err)
+	}
+	elbsrv := elbv2.New(sess)
+
+	listeners, err := elbsrv.DescribeListenersWithContext(ctx, &elbv2.DescribeListenersInput{
+		LoadBalancerArn: &deployment.LoadBalancerArn,
+	})
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to describe listeners for ALB %q: %s", deployment.LoadBalancerArn, err)
+	}
+	if len(listeners.Listeners) == 0 {
+		s.Update("No listeners found for ALB %q", deployment.LoadBalancerArn)
+	} else {
+		listenerResource.Arn = *listeners.Listeners[0].ListenerArn
+		s.Update("Found existing listener (ARN: %q)", listenerResource.Arn)
 	}
 	rm.Resource("alb listener").SetState(&listenerResource)
 
@@ -2606,9 +2791,9 @@ type ALBConfig struct {
 	// Fully qualified domain name of the record to create in the target zone id
 	FQDN string `hcl:"domain_name,optional"`
 
-	// When set, waypoint will configure the target group into the specified
-	// ALB Listener ARN. This allows for usage of existing ALBs.
-	ListenerARN string `hcl:"listener_arn,optional"`
+	// When set, waypoint will configure the target group into the load balancer.
+	// This allows for usage of existing ALBs.
+	LoadBalancerArn string `hcl:"load_balancer_arn,optional"`
 
 	// Indicates, when creating an ALB, that it should be internal rather than
 	// internet facing.
@@ -2620,6 +2805,9 @@ type ALBConfig struct {
 	// Subnets to place the alb into. Defaults to the subnets in the default VPC.
 	// This can be used to explicitly place the ALB on public subnets, leaving the service in private subnets.
 	Subnets []string `hcl:"subnets,optional"`
+
+	// Security Group ID of existing security group to use for ALB.
+	SecurityGroupIDs []string `hcl:"security_group_ids,optional"`
 }
 
 type HealthCheckConfig struct {
@@ -2755,6 +2943,45 @@ type Config struct {
 	ContainersConfig []*ContainerConfig `hcl:"sidecar,block"`
 
 	Logging *Logging `hcl:"logging,block"`
+
+	// Health check configurations for the target group
+	HealthCheck *AppHealthCheck `hcl:"health_check,block"`
+
+	// The protocol to use for routing traffic to the targets
+	Protocol string `hcl:"target_group_protocol,optional"`
+
+	// The version of the protocol to use for routing traffic to the targets
+	ProtocolVersion string `hcl:"target_group_protocol_version,optional"`
+}
+
+type AppHealthCheck struct {
+	// Protocol is the protocol for the health check to use - TCP, HTTP, HTTPS.
+	Protocol string `hcl:"protocol,optional"`
+
+	// Path is the destination of the ping path for target health checks.
+	Path string `hcl:"path,optional"`
+
+	// Timeout is the amount of time in seconds during which no target response means a failure.
+	Timeout int64 `hcl:"timeout,optional"`
+
+	// Interval is the amount of time in seconds between health checks.
+	Interval int64 `hcl:"interval,optional"`
+
+	// HealthyThresholdCount is the number of consecutive successful health checks required before considering an unhealthy target healthy.
+	// The range is 2–10. The default is 5.
+	HealthyThresholdCount int64 `hcl:"healthy_threshold_count,optional"`
+
+	// UnhealthyThresholdCount is the number of consecutive failed health checks required before considering a target unhealthy.
+	// The range is 2–10. The default is 2.
+	UnhealthyThresholdCount int64 `hcl:"unhealthy_threshold_count,optional"`
+
+	// GRPCCode is the gRPC codes to use when checking for a successful response from a target.
+	// The default value is 12.
+	GRPCCode string `hcl:"grpc_code,optional"`
+
+	// HTTPCode is the HTTP codes to use when checking for a successful response from a target.
+	// The range is 200 to 599. The default is 200-399.
+	HTTPCode string `hcl:"http_code,optional"`
 }
 
 func (p *Platform) Documentation() (*docs.Documentation, error) {
@@ -2802,7 +3029,7 @@ deploy {
 	doc.SetField(
 		"execution_role_name",
 		"the name of the IAM role to use for ECS execution",
-		docs.Default("create a new exeuction IAM role based on the application name"),
+		docs.Default("create a new execution IAM role based on the application name"),
 	)
 
 	doc.SetField(
@@ -2920,13 +3147,15 @@ deploy {
 			)
 
 			doc.SetField(
-				"listener_arn",
+				"load_balancer_arn",
 				"the ARN on an existing ALB to configure",
 				docs.Summary(
-					"when this is set, no ALB or Listener is created. Instead the application is",
-					"configured by manipulating this existing Listener. This allows users to",
-					"configure their ALB outside waypoint but still have waypoint hook the application",
-					"to that ALB",
+					"when this is set, Waypoint will use this ALB instead of creating",
+					"its own. A target group will still be created for each deployment,",
+					"and will be added to a listener on the configured ALB port",
+					"(Waypoint will the listener if it doesn't exist).",
+					"This allows users to configure their ALB outside Waypoint but still ",
+					"have Waypoint hook the application to that ALB",
 				),
 			)
 
@@ -2990,6 +3219,44 @@ deploy {
 		}),
 	)
 
+	doc.SetField("health_check",
+		"Health check settings for the app.",
+		docs.Summary("These settings configure a health check for the application "+
+			"target group."),
+
+		docs.SubFields(func(doc *docs.SubFieldDoc) {
+			doc.SetField("protocol",
+				"The protocol for the health check to use.",
+				docs.Default("HTTP"))
+
+			doc.SetField("path",
+				"The destination of the ping path for the target health check.")
+
+			doc.SetField("timeout",
+				"The amount of time, in seconds, for which no target response "+
+					"means a failure. Must be lower than the interval.",
+				docs.Default("5"))
+
+			doc.SetField("interval",
+				"The amount of time, in seconds, between health checks.",
+				docs.Default("30"))
+
+			doc.SetField("healthy_threshold_count",
+				"The number of consecutive successful health checks required to"+
+					"consider a target healthy.",
+				docs.Default("5"))
+
+			doc.SetField("unhealthy_threshold_count",
+				"The number of consecutive failed health checks required to "+
+					"consider a target unhealthy.",
+				docs.Default("2"))
+
+			doc.SetField("matcher",
+				"The range of HTTP codes to use when checking for a successful response from"+
+					"the target.",
+			)
+		}))
+
 	doc.SetField(
 		"sidecar",
 		"Additional container to run as a sidecar.",
@@ -2997,51 +3264,53 @@ deploy {
 			"This runs additional containers in addition to the main container that",
 			"comes from the build phase.",
 		),
-	)
 
-	doc.SetField(
-		"sidecar.name",
-		"Name of the container",
-	)
+		docs.SubFields(func(doc *docs.SubFieldDoc) {
+			doc.SetField(
+				"name",
+				"Name of the container",
+			)
 
-	doc.SetField(
-		"sidecar.image",
-		"Image of the sidecar container",
-	)
+			doc.SetField(
+				"image",
+				"Image of the sidecar container",
+			)
 
-	doc.SetField(
-		"sidecar.memory",
-		"The amount (in MiB) of memory to present to the container",
-	)
+			doc.SetField(
+				"memory",
+				"The amount (in MiB) of memory to present to the container",
+			)
 
-	doc.SetField(
-		"sidecar.memory_reservation",
-		"The soft limit (in MiB) of memory to reserve for the container",
-	)
+			doc.SetField(
+				"memory_reservation",
+				"The soft limit (in MiB) of memory to reserve for the container",
+			)
 
-	doc.SetField(
-		"sidecar.container_port",
-		"The port number for the container",
-	)
+			doc.SetField(
+				"container_port",
+				"The port number for the container",
+			)
 
-	doc.SetField(
-		"sidecar.host_port",
-		"The port number on the host to reserve for the container",
-	)
+			doc.SetField(
+				"host_port",
+				"The port number on the host to reserve for the container",
+			)
 
-	doc.SetField(
-		"sidecar.protocol",
-		"The protocol used for port mapping.",
-	)
+			doc.SetField(
+				"protocol",
+				"The protocol used for port mapping.",
+			)
 
-	doc.SetField(
-		"sidecar.static_environment",
-		"Environment variables to expose to this container",
-	)
+			doc.SetField(
+				"static_environment",
+				"Environment variables to expose to this container",
+			)
 
-	doc.SetField(
-		"sidecar.secrets",
-		"Secrets to expose to this container",
+			doc.SetField(
+				"secrets",
+				"Secrets to expose to this container",
+			)
+		}),
 	)
 
 	var memvals []int
@@ -3096,6 +3365,25 @@ deploy {
 		"architecture",
 		"the instruction set CPU architecture that the Amazon ECS supports. Valid values are: \"x86_64\", \"arm64\"",
 	)
+
+	doc.SetField(
+		"target_group_protocol",
+		"The protocol to use for routing traffic to the targets.",
+		docs.Default("HTTP"),
+		docs.Summary("The protocol to use for routing traffic to the targets. "+
+			"For Application Load Balancers, the supported protocols are HTTP "+
+			"and HTTPS. For Network Load Balancers, the supported protocols are"+
+			" TCP, TLS, UDP, or TCP_UDP. For Gateway Load Balancers, the supported"+
+			" protocol is GENEVE. A TCP_UDP listener must be associated with a "+
+			"TCP_UDP target group. If the target is a Lambda function, this "+
+			"parameter does not apply."))
+
+	doc.SetField("target_group_protocol_version",
+		"The version of the protocol to use for routing traffic to the targets.",
+		docs.Summary("[HTTP/HTTPS protocol] The protocol version. Specify GRPC "+
+			"to send requests to targets using gRPC. Specify HTTP2 to send requests"+
+			" to targets using HTTP/2. The default is HTTP1, which sends requests "+
+			"to targets using HTTP/1.1."))
 
 	return doc, nil
 }

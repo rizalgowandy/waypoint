@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package config
 
 import (
@@ -32,6 +35,7 @@ type hclConfig struct {
 	Plugin    []*Plugin                `hcl:"plugin,block"`
 	Config    *genericConfig           `hcl:"config,block"`
 	Apps      []*hclApp                `hcl:"app,block"`
+	Pipelines []*hclPipeline           `hcl:"pipeline,block"`
 	Body      hcl.Body                 `hcl:",body"`
 }
 

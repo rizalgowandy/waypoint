@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ptypes
 
 import (
@@ -10,7 +13,7 @@ import (
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
 )
 
-// TestBuild returns a valid user for tests.
+// TestBuild returns a valid build for tests.
 func TestBuild(t testing.T, src *pb.Build) *pb.Build {
 	t.Helper()
 

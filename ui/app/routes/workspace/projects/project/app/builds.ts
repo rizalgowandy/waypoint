@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import Route from '@ember/routing/route';
 import { Breadcrumb } from 'waypoint/services/breadcrumbs';
 import { Model as AppRouteModel } from '../app';
@@ -14,12 +19,10 @@ export default class Builds extends Route {
     return [
       {
         label: model.app ?? 'unknown',
-        icon: 'git-repo',
         route: 'workspace.projects.project.app',
       },
       {
         label: 'Builds',
-        icon: 'hammer',
         route: 'workspace.projects.project.app.builds',
       },
     ];

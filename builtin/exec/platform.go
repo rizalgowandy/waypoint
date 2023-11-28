@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package exec
 
 import (
@@ -149,7 +152,7 @@ func (p *Platform) renderTemplate(tpl *ConfigTemplate, data *tplData) (string, f
 	if err != nil {
 		return "", nil, err
 	}
-	closer := func() {} //os.RemoveAll(td) }
+	closer := func() { os.RemoveAll(td) }
 
 	// Render
 	var path string
@@ -358,15 +361,17 @@ deploy {
 	doc.SetField(
 		"template",
 		"A stanza that declares that a file or directory should be template-rendered.",
-	)
 
-	doc.SetField(
-		"template.path",
-		"The path to the file or directory to render as a template.",
-		docs.Summary(
-			"Templating uses the following format: https://golang.org/pkg/text/template/",
-			"Available template variables depends on the input artifact.",
-		),
+		docs.SubFields(func(doc *docs.SubFieldDoc) {
+			doc.SetField(
+				"path",
+				"The path to the file or directory to render as a template.",
+				docs.Summary(
+					"Templating uses the following format: https://golang.org/pkg/text/template/",
+					"Available template variables depends on the input artifact.",
+				),
+			)
+		}),
 	)
 
 	return doc, nil

@@ -87,12 +87,20 @@
     "path": "config-set"
   },
   {
+    "title": "config delete",
+    "path": "config-delete"
+  },
+  {
     "title": "config source-get",
     "path": "config-source-get"
   },
   {
     "title": "config source-set",
     "path": "config-source-set"
+  },
+  {
+    "title": "config source-delete",
+    "path": "config-source-delete"
   },
   {
     "title": "config sync",
@@ -187,12 +195,28 @@
     "path": "job-get-stream"
   },
   {
+    "title": "pipeline inspect",
+    "path": "pipeline-inspect"
+  },
+  {
+    "title": "pipeline list",
+    "path": "pipeline-list"
+  },
+  {
+    "title": "pipeline run",
+    "path": "pipeline-run"
+  },
+  {
     "title": "plugin",
     "path": "plugin"
   },
   {
     "title": "project apply",
     "path": "project-apply"
+  },
+  {
+    "title": "project destroy",
+    "path": "project-destroy"
   },
   {
     "title": "project inspect",
@@ -219,6 +243,14 @@
     "path": "runner-inspect"
   },
   {
+    "title": "runner install",
+    "path": "runner-install"
+  },
+  {
+    "title": "runner uninstall",
+    "path": "runner-uninstall"
+  },
+  {
     "title": "runner adopt",
     "path": "runner-adopt"
   },
@@ -235,6 +267,10 @@
     "path": "runner-token"
   },
   {
+    "title": "runner profile delete",
+    "path": "runner-profile-delete"
+  },
+  {
     "title": "runner profile list",
     "path": "runner-profile-list"
   },
@@ -245,6 +281,10 @@
   {
     "title": "runner profile set",
     "path": "runner-profile-set"
+  },
+  {
+    "title": "runner profile edit",
+    "path": "runner-profile-edit"
   },
   {
     "title": "server bootstrap",
@@ -285,6 +325,18 @@
   {
     "title": "status",
     "path": "status"
+  },
+  {
+    "title": "task list",
+    "path": "task-list"
+  },
+  {
+    "title": "task cancel",
+    "path": "task-cancel"
+  },
+  {
+    "title": "task inspect",
+    "path": "task-inspect"
   },
   {
     "title": "trigger create",

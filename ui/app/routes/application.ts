@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import Route from '@ember/routing/route';
 import SessionService from 'ember-simple-auth/services/session';
 import Transition from '@ember/routing/-private/transition';
@@ -14,6 +19,7 @@ export default class Application extends Route {
   @service session!: SessionService;
 
   async beforeModel(transition: Transition): Promise<void> {
+    await this.session.setup();
     await super.beforeModel(transition);
     if (!this.session.isAuthenticated && !transition.to.name.startsWith('auth')) {
       this.session.attemptedTransition = transition;

@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package runner
 
 import (
@@ -27,12 +30,25 @@ func (r *Runner) executeConfigSyncOp(
 		panic("operation not expected type")
 	}
 
-	// Do the release
+	// Do the config sync
 	if err := app.ConfigSync(ctx); err != nil {
 		return nil, err
 	}
 	result := &pb.Job_Result{
 		ConfigSync: &pb.Job_ConfigSyncResult{},
+	}
+
+	pipelineResult := make(map[string]*pb.Ref_Pipeline)
+	for _, pipeline := range project.Pipelines() {
+		if err := pipeline.ConfigSync(ctx); err != nil {
+			return nil, err
+		}
+
+		pipelineResult[pipeline.Name()] = pipeline.Ref()
+	}
+
+	result.PipelineConfigSync = &pb.Job_PipelineConfigSyncResult{
+		SyncedPipelines: pipelineResult,
 	}
 
 	return result, nil

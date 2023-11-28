@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package vault
 
 import (
@@ -11,6 +14,7 @@ import (
 	"github.com/hashicorp/go-hclog"
 
 	"github.com/hashicorp/waypoint/builtin/vault/internal/auth"
+	"github.com/hashicorp/waypoint/builtin/vault/internal/auth/approle"
 	"github.com/hashicorp/waypoint/builtin/vault/internal/auth/aws"
 	"github.com/hashicorp/waypoint/builtin/vault/internal/auth/gcp"
 	"github.com/hashicorp/waypoint/builtin/vault/internal/auth/kubernetes"
@@ -59,6 +63,8 @@ func (cs *ConfigSourcer) initAuthMethod(
 		method, err = gcp.NewGCPAuthMethod(authConfig)
 	case "kubernetes":
 		method, err = kubernetes.NewKubernetesAuthMethod(authConfig)
+	case "approle":
+		method, err = approle.NewApproleAuthMethod(authConfig)
 	default:
 		return fmt.Errorf("unknown auth method: %s", cs.config.AuthMethod)
 	}

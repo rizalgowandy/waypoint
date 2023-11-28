@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package runner
 
 import (
@@ -14,10 +17,10 @@ import (
 	"google.golang.org/grpc/status"
 
 	configpkg "github.com/hashicorp/waypoint/internal/config"
-	"github.com/hashicorp/waypoint/internal/server/singleprocess"
 	serverpkg "github.com/hashicorp/waypoint/pkg/server"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
 	serverptypes "github.com/hashicorp/waypoint/pkg/server/ptypes"
+	"github.com/hashicorp/waypoint/pkg/server/singleprocess"
 )
 
 var testHasGit bool
@@ -28,7 +31,7 @@ func init() {
 	}
 }
 
-func TestRunnerAccept(t *testing.T) {
+func TestRunnerAccept_happy(t *testing.T) {
 	require := require.New(t)
 	ctx := context.Background()
 
@@ -208,7 +211,180 @@ func TestRunnerAccept_serverDown(t *testing.T) {
 	require.Equal(pb.Job_SUCCESS, job.State)
 }
 
-func TestRunnerAccept_closeCancelesAccept(t *testing.T) {
+// Test how accept behaves when the server is down while waiting for
+// assignment.
+func TestRunnerAccept_serverDownAssign(t *testing.T) {
+	require := require.New(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// New context that will be used for server restart.
+	serverCtx, serverCancel := context.WithCancel(context.Background())
+	defer serverCancel()
+
+	// Setup the server
+	restartCh := make(chan struct{})
+	impl := singleprocess.TestImpl(t)
+	client := serverpkg.TestServer(t, impl,
+		serverpkg.TestWithContext(serverCtx),
+		serverpkg.TestWithRestart(restartCh),
+	)
+
+	// Setup our runner
+	runner := TestRunner(t, WithClient(client))
+	require.NoError(runner.Start(ctx))
+
+	// Initialize our app
+	singleprocess.TestApp(t, client, serverptypes.TestJobNew(t, nil).Application)
+
+	// Start accept
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runner.Accept(ctx)
+	}()
+
+	// The runner should not error
+	select {
+	case <-time.After(100 * time.Millisecond):
+		// Good
+
+	case <-errCh:
+		t.Fatal("runner should not return")
+	}
+
+	// Shut it down
+	serverCancel()
+	serverCtx, serverCancel = context.WithCancel(context.Background())
+	defer serverCancel()
+
+	// Wait to get an unavailable error so we know the server is down
+	require.Eventually(func() bool {
+		_, err := client.GetRunner(ctx, &pb.GetRunnerRequest{RunnerId: runner.Id()})
+		return status.Code(err) == codes.Unavailable
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// Restart
+	restartCh <- struct{}{}
+
+	// Queue a job
+	var jobId string
+	require.Eventually(func() bool {
+		queueResp, err := client.QueueJob(ctx, &pb.QueueJobRequest{
+			Job: serverptypes.TestJobNew(t, nil),
+		})
+		if err != nil {
+			return false
+		}
+
+		jobId = queueResp.JobId
+		return true
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// Accept should return
+	select {
+	case err := <-errCh:
+		require.NoError(err)
+
+	case <-time.After(5 * time.Second):
+		t.Fatal("accept never returned")
+	}
+
+	// Verify that the job is completed
+	job, err := client.GetJob(ctx, &pb.GetJobRequest{JobId: jobId})
+	require.NoError(err)
+	require.Equal(pb.Job_SUCCESS, job.State)
+}
+
+// Server down during job execution.
+func TestRunnerAccept_serverDownJobExec(t *testing.T) {
+	require := require.New(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// New context that will be used for server restart.
+	serverCtx, serverCancel := context.WithCancel(context.Background())
+	defer serverCancel()
+
+	// Setup the server
+	restartCh := make(chan struct{})
+	impl := singleprocess.TestImpl(t)
+	client := serverpkg.TestServer(t, impl,
+		serverpkg.TestWithContext(serverCtx),
+		serverpkg.TestWithRestart(restartCh),
+	)
+
+	// Setup our runner
+	runner := TestRunner(t, WithClient(client))
+	require.NoError(runner.Start(ctx))
+
+	// Initialize our app
+	singleprocess.TestApp(t, client, serverptypes.TestJobNew(t, nil).Application)
+
+	// Queue a job
+	queueResp, err := client.QueueJob(ctx, &pb.QueueJobRequest{
+		Job: serverptypes.TestJobNew(t, nil),
+	})
+	require.NoError(err)
+	jobId := queueResp.JobId
+
+	// Make sure our noop operation blocks
+	noopCh := make(chan struct{})
+	runner.noopCh = noopCh
+
+	// Start accept
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runner.Accept(ctx)
+	}()
+
+	// The runner should not error
+	select {
+	case <-time.After(100 * time.Millisecond):
+		// Good
+
+	case <-errCh:
+		t.Fatal("runner should not return")
+	}
+
+	// Wait for the job to be running, then we know it is acked.
+	require.Eventually(func() bool {
+		job, err := client.GetJob(ctx, &pb.GetJobRequest{JobId: jobId})
+		return err == nil && job.State == pb.Job_RUNNING
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// Shut the server down
+	serverCancel()
+	serverCtx, serverCancel = context.WithCancel(context.Background())
+	defer serverCancel()
+
+	// Wait to get an unavailable error so we know the server is down
+	require.Eventually(func() bool {
+		_, err := client.GetRunner(ctx, &pb.GetRunnerRequest{RunnerId: runner.Id()})
+		return status.Code(err) == codes.Unavailable
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// Restart
+	restartCh <- struct{}{}
+
+	// Let job complete
+	close(noopCh)
+
+	// Accept should return
+	select {
+	case err := <-errCh:
+		require.NoError(err)
+
+	case <-time.After(5 * time.Second):
+		t.Fatal("accept never returned")
+	}
+
+	// Verify that the job is completed
+	job, err := client.GetJob(ctx, &pb.GetJobRequest{JobId: jobId})
+	require.NoError(err)
+	require.Equal(pb.Job_SUCCESS, job.State)
+}
+
+func TestRunnerAccept_closeCancelsAccept(t *testing.T) {
 	require := require.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -646,6 +822,84 @@ func TestRunnerAccept_jobHcl(t *testing.T) {
 	require.NoError(err)
 	require.Equal(pb.Job_SUCCESS, job.State)
 	require.Equal(pb.Job_Config_JOB, job.Config.Source)
+}
+
+func TestRunnerAcceptParallel(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+
+	// Setup our runner
+	client := singleprocess.TestServer(t)
+	runner := TestRunner(t, WithClient(client))
+	require.NoError(runner.Start(ctx))
+
+	// Block our noop jobs so we can inspect their state
+	noopCh := make(chan struct{})
+	runner.noopCh = noopCh
+
+	// Initialize our app
+	singleprocess.TestApp(t, client, serverptypes.TestJobNew(t, nil).Application)
+
+	// Queue jobs
+	queueResp, err := client.QueueJob(ctx, &pb.QueueJobRequest{
+		Job: serverptypes.TestJobNew(t, &pb.Job{
+			Workspace: &pb.Ref_Workspace{Workspace: "w1"},
+		}),
+	})
+	require.NoError(err)
+	jobId_1 := queueResp.JobId
+
+	queueResp, err = client.QueueJob(ctx, &pb.QueueJobRequest{
+		Job: serverptypes.TestJobNew(t, &pb.Job{
+			Workspace: &pb.Ref_Workspace{Workspace: "w2"},
+		}),
+	})
+	require.NoError(err)
+	jobId_2 := queueResp.JobId
+
+	// Accept should complete
+	doneCh := make(chan struct{})
+	go func() {
+		defer close(doneCh)
+		runner.AcceptParallel(ctx, 2)
+	}()
+
+	// Both jobs should be running at once eventually
+	require.Eventually(func() bool {
+		job, err := client.GetJob(ctx, &pb.GetJobRequest{JobId: jobId_1})
+		require.NoError(err)
+		if job.State != pb.Job_RUNNING {
+			return false
+		}
+
+		job, err = client.GetJob(ctx, &pb.GetJobRequest{JobId: jobId_2})
+		require.NoError(err)
+		return job.State == pb.Job_RUNNING
+	}, 3*time.Second, 10*time.Millisecond)
+
+	// Jobs should complete
+	close(noopCh)
+	require.Eventually(func() bool {
+		job, err := client.GetJob(ctx, &pb.GetJobRequest{JobId: jobId_1})
+		require.NoError(err)
+		if job.State != pb.Job_SUCCESS {
+			return false
+		}
+
+		job, err = client.GetJob(ctx, &pb.GetJobRequest{JobId: jobId_2})
+		require.NoError(err)
+		return job.State == pb.Job_SUCCESS
+	}, 3*time.Second, 10*time.Millisecond)
+
+	// Loop should exit
+	cancel()
+	select {
+	case <-time.After(2 * time.Second):
+		t.Fatal("accept should exit")
+
+	default:
+	}
 }
 
 // testGitFixture MUST be called before TestRunner since TestRunner

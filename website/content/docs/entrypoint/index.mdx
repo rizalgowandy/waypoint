@@ -5,31 +5,38 @@ description: |-
   Waypoint uses an entrypoint binary to enable features such as application configuration, logs, exec, and more.
 ---
 
+<Warning>
+
+This content is part of the legacy version of Waypoint that is no longer actively maintained. For additional information on the new vision of Waypoint, check out [this blog post](https://www.hashicorp.com/blog/a-new-vision-for-hcp-waypoint) and the [HCP Waypoint documentation](/hcp/docs/waypoint).
+
+</Warning>
+
 # Waypoint Entrypoint
 
 Waypoint uses an entrypoint binary to enable features such as application
-configuration, logs, exec, and more. In most cases, Waypoint will automatically
-inject and configure the entrypoint binary during the build phase. The
-image below shows a high-level architecture diagram of the entrypoint in
-a Docker image.
+configuration, logs, exec, and more. In most cases if building containers, Waypoint
+will automatically inject and configure the entrypoint binary during the build phase.
+The image below shows a high-level architecture diagram of the entrypoint in a Docker
+image.
 
 ![Entrypoint Overview](/img/entrypoint-overview.png)
 
-~> The entrypoint binary injection and usage is **not required** and can be
+~> **Note:** The entrypoint binary injection and usage is **not required** and can be
 disabled. This will also disable features such as logs, exec, etc. for that
-application. See [disabling the entrypoint](/docs/entrypoint/disable) for more information.
+application. See [disabling the entrypoint](/waypoint/docs/entrypoint/disable) for more information.
 
 ## Installation
 
-**For builders that produce Docker images, the entrypoint is automatically
-injected into the container image.**
+-> For builders that produce Docker images (docker, docker-pull, pack), the
+entrypoint is automatically injected into the container image.\*\*
 
 For other types of builds, the entrypoint must be manually installed.
 To manually install the entrypoint:
 
-1. [Download](https://releases.hashicorp.com/waypoint-entrypoint/) the appropriate `waypoint-entrypoint` binary for the
-   platform your application will run on. This is _not_ your desktop operating
-   system but the operating system your app will be deployed _to_.
+1. [Download](https://releases.hashicorp.com/waypoint-entrypoint/) the appropriate
+   `waypoint-entrypoint` binary for the platform your application will run on. This is
+   _not_ your desktop operating system but the operating system your app will be
+   deployed _to_.
 
 2. Put the single binary Waypoint entrypoint anywhere in your deployment
    image, such as `/usr/local/bin` on Unix-like systems.
@@ -89,7 +96,7 @@ log level by setting the `WAYPOINT_LOG_LEVEL` environment variable to
 one of: `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR` (values further to the
 left are more verbose than those to the right). This environment variable
 may be set at build time, using deployment plugin configuration, or
-via the [waypoint config CLI](/docs/app-config#setting-configuration-via-the-cli).
+via the [waypoint config CLI](/waypoint/docs/app-config#setting-configuration-via-the-cli).
 
 -> **Note:** The `WAYPOINT_LOG_LEVEL` environment variable must be set
 within the runtime environment of your deployment, not on your local machine.
@@ -109,7 +116,7 @@ server in the background.
 
 This behavior allows Waypoint to start the child process no matter what.
 
-If you're using [application configuration](/docs/app-config), the configuration
+If you're using [application configuration](/waypoint/docs/app-config), the configuration
 will not be available to the application in this failure case. This may
 cause the application startup to fail.
 
@@ -149,10 +156,10 @@ specific deployment. It cannot trigger new deploys, list existing deploys,
 etc. Therefore, if the environment the entrypoint is running in is compromised
 in any way, it poses a minimal risk to Waypoint as a whole.
 
-The Waypoint entrypoint can be [completely disabled](/docs/entrypoint/disable)
+The Waypoint entrypoint can be [completely disabled](/waypoint/docs/entrypoint/disable)
 if that is desired. This will disable all entrypoint-related functionality
 including app config, logs, exec, etc. You may also
-[disable specific features](/docs/entrypoint/disable#disabling-specific-features)
+[disable specific features](/waypoint/docs/entrypoint/disable#disabling-specific-features)
 instead of the entire entrypoint.
 
 -> Many improvements are planned to improve the security of the entrypoint.

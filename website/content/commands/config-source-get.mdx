@@ -5,6 +5,12 @@ sidebar_title: 'config source-get'
 description: 'Get the configuration for a dynamic source plugin'
 ---
 
+<Warning>
+
+This content is part of the legacy version of Waypoint that is no longer actively maintained. For additional information on the new vision of Waypoint, check out [this blog post](https://www.hashicorp.com/blog/a-new-vision-for-hcp-waypoint) and the [HCP Waypoint documentation](/hcp/docs/waypoint).
+
+</Warning>
+
 # Waypoint Config source-get
 
 Command: `waypoint config source-get`
@@ -25,9 +31,12 @@ configurations globally for the server.
 
 To use this command, you must specify a "-type" flag.
 
+Configuration for this command is global. The "-app", "-project", and
+"-workspace" flags are ignored on this command.
+
 #### Global Options
 
-- `-plain` - Plain output: no colors, no animation.
+- `-plain` - Plain output: no colors, no animation. The default is false.
 - `-app=<string>` (`-a`) - App to target. Certain commands require a single app target for Waypoint configurations with multiple apps. If you have a single app, then this can be ignored.
 - `-project=<string>` (`-p`) - Project to target.
 - `-workspace=<string>` (`-w`) - Workspace to operate in.
@@ -35,5 +44,6 @@ To use this command, you must specify a "-type" flag.
 #### Command Options
 
 - `-type=<string>` - Dynamic source type to look up, such as 'vault'.
+- `-scope=<string>` - The scope for this configuration source. The configuration source will only appear within this scope. This can be one of 'all', 'global', 'project', or 'app'. The default is project.
 
 @include "commands/config-source-get_more.mdx"

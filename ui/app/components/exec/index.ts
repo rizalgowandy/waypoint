@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import Component from '@glimmer/component';
 import { Empty } from 'google-protobuf/google/protobuf/empty_pb';
 import { ExecStreamRequest } from 'waypoint-pb';

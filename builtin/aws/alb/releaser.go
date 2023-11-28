@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package alb
 
 import (
@@ -11,7 +14,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/aws/aws-sdk-go/service/route53"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/waypoint-plugin-sdk/component"
 	"github.com/hashicorp/waypoint-plugin-sdk/docs"
@@ -21,6 +23,7 @@ import (
 	"github.com/hashicorp/waypoint/builtin/aws/utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type Releaser struct {
@@ -94,7 +97,7 @@ func (r *Releaser) resourceSecurityGroupCreate(
 	ui terminal.UI,
 	lbName string,
 	port int64,
-	state *Resource_SecurityGroup,
+	state []*Resource_SecurityGroup,
 ) error {
 	if r.config.ListenerARN != "" {
 		// a custom listner is being used, so we assume the Load Balancer is already
@@ -132,11 +135,20 @@ func (r *Releaser) resourceSecurityGroupCreate(
 
 		vpc = subnetInfo.Subnets[0].VpcId
 	}
-	sGroup, err := utils.CreateSecurityGroup(ctx, sess, fmt.Sprintf("%s-incoming", lbName), vpc, int(port))
-	if err != nil {
-		return err
+
+	if len(r.config.SecurityGroupIDs) > 0 {
+		log.Debug("user specified alb security groups found, skipping security group create")
+
+		for _, sGroup := range r.config.SecurityGroupIDs {
+			state = append(state, &Resource_SecurityGroup{Id: sGroup, Managed: false})
+		}
+	} else {
+		sGroup, err := utils.CreateSecurityGroup(ctx, sess, fmt.Sprintf("%s-incoming", lbName), vpc, int(port))
+		if err != nil {
+			return err
+		}
+		state = append(state, &Resource_SecurityGroup{Id: *sGroup, Managed: true})
 	}
-	state.Id = *sGroup
 
 	return nil
 }
@@ -144,40 +156,45 @@ func (r *Releaser) resourceSecurityGroupCreate(
 func (r *Releaser) resourceSecurityGroupDestroy(
 	ctx context.Context,
 	sess *session.Session,
-	state *Resource_SecurityGroup,
+	state []*Resource_SecurityGroup,
 	log hclog.Logger,
 	sg terminal.StepGroup,
 ) error {
-	if state.Id != "" {
-		step := sg.Add("Destroying Security Group...")
-		defer step.Abort()
-		log.Debug("deleting security group", "sg-id", state.Id)
-		ec2Svc := ec2.New(sess)
-		for i := 0; i < 20; i++ {
-			_, err := ec2Svc.DeleteSecurityGroup(&ec2.DeleteSecurityGroupInput{
-				GroupId: &state.Id,
-			})
-			if err == nil {
-				step.Done()
-				return nil
-			}
-			// if we encounter an unrecoverable error, exit now.
-			if aerr, ok := err.(awserr.Error); ok {
-				switch aerr.Code() {
-				case "DependencyViolation":
-					time.Sleep(2 * time.Second)
-					continue
-				case "InvalidGroup.NotFound":
-					log.Debug("security group not found", "sg-id", state.Id)
+	if len(state) >= 1 && len(r.config.SecurityGroupIDs) == 0 {
+		for _, sgState := range state {
+			step := sg.Add("Destroying Security Group...")
+			defer step.Abort()
+			log.Debug("deleting security group", "sg-id", sgState.Id)
+			ec2Svc := ec2.New(sess)
+			for i := 0; i < 20; i++ {
+				_, err := ec2Svc.DeleteSecurityGroup(&ec2.DeleteSecurityGroupInput{
+					GroupId: &sgState.Id,
+				})
+				if err == nil {
+					step.Done()
 					return nil
-				default:
-					return err
 				}
+				// if we encounter an unrecoverable error, exit now.
+				if aerr, ok := err.(awserr.Error); ok {
+					switch aerr.Code() {
+					case "DependencyViolation":
+						time.Sleep(2 * time.Second)
+						continue
+					case "InvalidGroup.NotFound":
+						log.Debug("security group not found", "sg-id", sgState.Id)
+						return nil
+					default:
+						return err
+					}
+				}
+				return err
 			}
-			return err
+			step.Update("Destroyed Security Group")
+			step.Done()
 		}
-		step.Update("Destroyed Security Group")
-		step.Done()
+	} else if len(r.config.SecurityGroupIDs) >= 0 {
+		log.Debug("not deleting user-provided security groups", "sg-id", r.config.SecurityGroupIDs)
+		return nil
 	}
 	log.Debug("no security group id found, continuing")
 
@@ -193,7 +210,7 @@ func (r *Releaser) resourceLoadBalancerCreate(
 	lbName string,
 	port int64,
 	target *TargetGroup,
-	sgState *Resource_SecurityGroup,
+	sgState []*Resource_SecurityGroup,
 	state *Resource_LoadBalancer,
 ) error {
 
@@ -266,10 +283,15 @@ func (r *Releaser) resourceLoadBalancerCreate(
 	if dlb != nil && len(dlb.LoadBalancers) > 0 {
 		lb = dlb.LoadBalancers[0]
 	} else {
+		var sgs []*string
+		for _, s := range sgState {
+			sgs = append(sgs, &s.Id)
+		}
+
 		clb, err := elbsrv.CreateLoadBalancer(&elbv2.CreateLoadBalancerInput{
 			Name:           aws.String(lbName),
 			Subnets:        subnets,
-			SecurityGroups: []*string{&sgState.Id},
+			SecurityGroups: sgs,
 		})
 		if err != nil {
 			return err
@@ -779,7 +801,7 @@ func (r *Releaser) Status(
 	var report sdk.StatusReport
 	report.External = true
 	defer func() {
-		report.GeneratedTime = ptypes.TimestampNow()
+		report.GeneratedTime = timestamppb.Now()
 	}()
 
 	if release.Region == "" {
@@ -1035,6 +1057,9 @@ type ReleaserConfig struct {
 	// When set, waypoint will configure the target group into the specified
 	// ALB Listener ARN. This allows for usage of existing ALBs.
 	ListenerARN string `hcl:"listener_arn,optional"`
+
+	// Existing Security Group ID to use for ALB.
+	SecurityGroupIDs []string `hcl:"security_group_ids,optional"`
 }
 
 func (r *Releaser) Documentation() (*docs.Documentation, error) {
@@ -1115,6 +1140,14 @@ func (r *Releaser) Documentation() (*docs.Documentation, error) {
 			"configured by manipulating this existing Listener. This allows users to",
 			"configure their ALB outside waypoint but still have waypoint hook the application",
 			"to that ALB",
+		),
+	)
+
+	doc.SetField(
+		"security_group_ids",
+		"the existing security groups to add to the ALB",
+		docs.Summary(
+			"a set of existing security groups to add to the ALB",
 		),
 	)
 

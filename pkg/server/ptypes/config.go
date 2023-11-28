@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ptypes
 
 import (
@@ -13,6 +16,20 @@ func ValidateSetConfigSourceRequest(v *pb.SetConfigSourceRequest) error {
 	))
 }
 
+// ValidateDeleteConfigSourceRequest
+func ValidateDeleteConfigSourceRequest(v *pb.DeleteConfigSourceRequest) error {
+	return validationext.Error(validation.ValidateStruct(v,
+		validation.Field(&v.ConfigSource, validation.Required),
+	))
+}
+
+// ValidateGetConfigSourceRequest
+func ValidateGetConfigSourceRequest(v *pb.GetConfigSourceRequest) error {
+	return validationext.Error(validation.ValidateStruct(v,
+		validation.Field(&v.Scope, validation.Required),
+	))
+}
+
 // ValidateGetConfigRequest
 func ValidateGetConfigRequest(v *pb.ConfigGetRequest) error {
 	return validationext.Error(validation.ValidateStruct(v,
@@ -20,9 +37,16 @@ func ValidateGetConfigRequest(v *pb.ConfigGetRequest) error {
 	))
 }
 
-// ValidateGetConfigRequest
-func ValidateGetConfigSourceRequest(v *pb.GetConfigSourceRequest) error {
+// ValidateSetConfigRequest
+func ValidateSetConfigRequest(v *pb.ConfigSetRequest) error {
 	return validationext.Error(validation.ValidateStruct(v,
-		validation.Field(&v.Scope, validation.Required),
+		validation.Field(&v.Variables, validation.Required),
+	))
+}
+
+// ValidateDeleteConfigRequest
+func ValidateDeleteConfigRequest(v *pb.ConfigDeleteRequest) error {
+	return validationext.Error(validation.ValidateStruct(v,
+		validation.Field(&v.Variables, validation.Required),
 	))
 }

@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
@@ -24,7 +27,7 @@ func (c *SnapshotBackupCommand) initWriter(args []string) (io.Writer, io.Closer,
 			return os.Stdout, nil, nil
 		}
 
-		f, err := os.Create(args[0])
+		f, err := os.OpenFile(args[0], os.O_CREATE|os.O_EXCL, 0600)
 		if err != nil {
 			return nil, nil, err
 		}

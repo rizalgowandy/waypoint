@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
@@ -9,7 +12,6 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/posener/complete"
 
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
@@ -18,7 +20,6 @@ import (
 	"github.com/hashicorp/waypoint/internal/clierrors"
 	"github.com/hashicorp/waypoint/internal/pkg/flag"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
-	serversort "github.com/hashicorp/waypoint/pkg/server/sort"
 )
 
 type ArtifactListCommand struct {
@@ -76,7 +77,6 @@ func (c *ArtifactListCommand) Run(args []string) int {
 			)
 			return nil
 		}
-		sort.Sort(serversort.ArtifactStartDesc(resp.Artifacts))
 
 		if c.flagJson {
 			return c.displayJson(resp.Artifacts)
@@ -105,11 +105,11 @@ func (c *ArtifactListCommand) Run(args []string) int {
 
 			// Parse our times
 			var startTime, completeTime string
-			if t, err := ptypes.Timestamp(b.Status.StartTime); err == nil {
-				startTime = humanize.Time(t)
+			if b.Status.StartTime != nil {
+				startTime = humanize.Time(b.Status.StartTime.AsTime())
 			}
-			if t, err := ptypes.Timestamp(b.Status.CompleteTime); err == nil {
-				completeTime = humanize.Time(t)
+			if b.Status.CompleteTime != nil {
+				completeTime = humanize.Time(b.Status.CompleteTime.AsTime())
 			}
 
 			var (

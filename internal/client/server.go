@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package client
 
 import (
@@ -8,15 +11,15 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/golang/protobuf/ptypes/empty"
 	bolt "go.etcd.io/bbolt"
 	"google.golang.org/grpc"
+	empty "google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/hashicorp/waypoint/internal/server"
-	"github.com/hashicorp/waypoint/internal/server/singleprocess"
-	"github.com/hashicorp/waypoint/internal/serverclient"
 	"github.com/hashicorp/waypoint/pkg/protocolversion"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
+	"github.com/hashicorp/waypoint/pkg/server/singleprocess"
+	"github.com/hashicorp/waypoint/pkg/serverclient"
 )
 
 // initServerClient will initialize a gRPC connection to the Waypoint server.
@@ -27,12 +30,11 @@ import (
 //
 // This function will do one of two things:
 //
-//   1. If connection options were given, it'll attempt to connect to
-//      an existing Waypoint server.
+//  1. If connection options were given, it'll attempt to connect to
+//     an existing Waypoint server.
 //
-//   2. If WithLocal was specified and no connection addresses can be
-//      found, this will spin up an in-memory server.
-//
+//  2. If WithLocal was specified and no connection addresses can be
+//     found, this will spin up an in-memory server.
 func (c *Project) initServerClient(ctx context.Context, cfg *config) (*grpc.ClientConn, error) {
 	log := c.logger.Named("server")
 

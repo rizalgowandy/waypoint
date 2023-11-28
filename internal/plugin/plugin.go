@@ -1,18 +1,27 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package plugin
 
 import (
 	sdk "github.com/hashicorp/waypoint-plugin-sdk"
 	"github.com/hashicorp/waypoint-plugin-sdk/component"
+	dockerref "github.com/hashicorp/waypoint/builtin/docker/ref"
+	"github.com/hashicorp/waypoint/builtin/nomad/canary"
+	"github.com/hashicorp/waypoint/builtin/packer"
 	"github.com/hashicorp/waypoint/internal/factory"
 
 	"github.com/hashicorp/waypoint/builtin/aws/alb"
 	"github.com/hashicorp/waypoint/builtin/aws/ami"
 	"github.com/hashicorp/waypoint/builtin/aws/ec2"
 	"github.com/hashicorp/waypoint/builtin/aws/ecr"
+	awsecrpull "github.com/hashicorp/waypoint/builtin/aws/ecr/pull"
 	"github.com/hashicorp/waypoint/builtin/aws/ecs"
 	"github.com/hashicorp/waypoint/builtin/aws/lambda"
+	lambdaFunctionUrl "github.com/hashicorp/waypoint/builtin/aws/lambda/function_url"
 	"github.com/hashicorp/waypoint/builtin/aws/ssm"
 	"github.com/hashicorp/waypoint/builtin/azure/aci"
+	"github.com/hashicorp/waypoint/builtin/consul"
 	"github.com/hashicorp/waypoint/builtin/docker"
 	dockerpull "github.com/hashicorp/waypoint/builtin/docker/pull"
 	"github.com/hashicorp/waypoint/builtin/exec"
@@ -37,6 +46,7 @@ var (
 		"pack":                     pack.Options,
 		"docker":                   docker.Options,
 		"docker-pull":              dockerpull.Options,
+		"docker-ref":               dockerref.Options,
 		"exec":                     exec.Options,
 		"google-cloud-run":         cloudrun.Options,
 		"azure-container-instance": aci.Options,
@@ -45,17 +55,21 @@ var (
 		"helm":                     k8shelm.Options,
 		"aws-ecs":                  ecs.Options,
 		"aws-ecr":                  ecr.Options,
+		"aws-ecr-pull":             awsecrpull.Options,
 		"nomad":                    nomad.Options,
 		"nomad-jobspec":            jobspec.Options,
-		"nomad-jobspec-canary":     jobspec.Options,
+		"nomad-jobspec-canary":     canary.Options,
 		"aws-ami":                  ami.Options,
 		"aws-ec2":                  ec2.Options,
 		"aws-alb":                  alb.Options,
 		"aws-ssm":                  ssm.Options,
 		"aws-lambda":               lambda.Options,
+		"lambda-function-url":      lambdaFunctionUrl.Options,
 		"vault":                    vault.Options,
 		"terraform-cloud":          tfc.Options,
 		"null":                     null.Options,
+		"consul":                   consul.Options,
+		"packer":                   packer.Options,
 	}
 
 	// BaseFactories is the set of base plugin factories. This will include any
@@ -89,6 +103,12 @@ var (
 		},
 		"terraform-cloud": {
 			Component: &tfc.ConfigSourcer{},
+		},
+		"consul": {
+			Component: &consul.ConfigSourcer{},
+		},
+		"packer": {
+			Component: &packer.ConfigSourcer{},
 		},
 	}
 )

@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ptypes
 
 import (
@@ -63,7 +66,7 @@ func ValidateUpsertWorkspaceRequest(v *pb.UpsertWorkspaceRequest) error {
 		validation.Field(&v.Workspace, validation.Required),
 		validationext.StructField(&v.Workspace, func() []*validation.FieldRules {
 			return append(ValidateWorkspaceRules(v.Workspace),
-				validation.Field(&v.Workspace.Name, validation.Required),
+				validation.Field(&v.Workspace.Name, validation.Required, validation.By(validatePathToken)),
 			)
 		}),
 	))

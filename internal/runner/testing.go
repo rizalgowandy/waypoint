@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package runner
 
 import (
@@ -8,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	configpkg "github.com/hashicorp/waypoint/internal/config"
-	"github.com/hashicorp/waypoint/internal/server/singleprocess"
+	"github.com/hashicorp/waypoint/pkg/server/singleprocess"
 )
 
 // TestRunner returns an initialized runner pointing to an in-memory test

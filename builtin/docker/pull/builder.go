@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package dockerpull
 
 import (
@@ -5,20 +8,20 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"os"
-	"os/exec"
-
 	"github.com/docker/cli/cli/config"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/registry"
-	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/hashicorp/go-argmapper"
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/waypoint-plugin-sdk/component"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	empty "google.golang.org/protobuf/types/known/emptypb"
+	"os"
+	"os/exec"
 
 	"github.com/hashicorp/waypoint-plugin-sdk/docs"
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
@@ -37,6 +40,11 @@ type Builder struct {
 // BuildFunc implements component.Builder
 func (b *Builder) BuildFunc() interface{} {
 	return b.Build
+}
+
+// BuildFunc implements component.BuilderODR
+func (b *Builder) BuildODRFunc() interface{} {
+	return b.BuildODR
 }
 
 // Config is the configuration structure for the registry.
@@ -149,7 +157,7 @@ func (b *Builder) Config() (interface{}, error) {
 
 // We use the struct form of arguments so that we can access named
 // values (such as "HasRegistry").
-type buildArgs struct {
+type BuildArgs struct {
 	argmapper.Struct
 
 	Ctx         context.Context
@@ -159,7 +167,26 @@ type buildArgs struct {
 }
 
 // Build
-func (b *Builder) Build(args buildArgs) (*wpdocker.Image, error) {
+func (b *Builder) BuildODR(
+	ctx context.Context,
+	ui terminal.UI,
+	src *component.Source,
+	log hclog.Logger,
+	ai *wpdocker.AccessInfo,
+) (*wpdocker.Image, error) {
+	sg := ui.StepGroup()
+	defer sg.Wait()
+
+	result, err := b.pullWithKaniko(ctx, ui, sg, log, ai)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// Build
+func (b *Builder) Build(args BuildArgs) (*wpdocker.Image, error) {
 	// Pull all the args out to top-level values. This is mostly done
 	// cause the struct was added later, but also because these are very common.
 	ctx := args.Ctx

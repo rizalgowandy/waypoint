@@ -10,10 +10,11 @@
 , go-changelog
 , go-mockery
 , go-protobuf
+, go-protobuf-grpc
 , go-protobuf-grpc-gateway
 , go-protobuf-json
 , go-protobuf-swagger
-, go-tools
+, gotools
 , grpcurl
 , kubectl
 , libpng
@@ -38,6 +39,7 @@ mkShell rec {
     docker-compose
     go
     go-bindata
+    gotools
     grpcurl
     nodejs-16_x
     postgresql_12
@@ -48,10 +50,10 @@ mkShell rec {
     # Custom packages, added to overlay
     protobufPin
     go-protobuf
+    go-protobuf-grpc
     go-protobuf-grpc-gateway
     go-protobuf-json
     go-protobuf-swagger
-    go-tools
     go-mockery
     go-changelog
 

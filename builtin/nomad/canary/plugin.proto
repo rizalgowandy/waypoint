@@ -1,0 +1,15 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
+syntax = "proto3";
+
+package canary;
+
+option go_package = "waypoint/builtin/nomad/canary";
+
+import "opaqueany/any.proto";
+
+message Release {
+  string Url = 1;
+  opaqueany.Any resource_state = 2;
+}

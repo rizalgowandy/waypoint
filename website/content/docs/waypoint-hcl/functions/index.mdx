@@ -5,6 +5,12 @@ description: |-
   The `waypoint.hcl` file uses HCL which is able to call predefined functions. Functions enable Waypoint configurations to represent complex configurations using programming techniques.
 ---
 
+<Warning>
+
+This content is part of the legacy version of Waypoint that is no longer actively maintained. For additional information on the new vision of Waypoint, check out [this blog post](https://www.hashicorp.com/blog/a-new-vision-for-hcp-waypoint) and the [HCP Waypoint documentation](/hcp/docs/waypoint).
+
+</Warning>
+
 # Functions in `waypoint.hcl`
 
 The `waypoint.hcl` file uses [HCL](https://github.com/hashicorp/hcl) which
@@ -13,7 +19,7 @@ to represent complex configurations using programming techniques.
 
 Most functions can be used anywhere in the Waypoint configuration file.
 Some functions are context-specific and are only valid when called from the correct locations.
-Function documentation pages may use [placement tables](/docs/waypoint-hcl#placement-tables)
+Function documentation pages may use [placement tables](/waypoint/docs/waypoint-hcl#placement-tables)
 to document where functions are valid. If a placement table is not present
 for a function, it is safe to assume that it can be used anywhere.
 
@@ -59,4 +65,4 @@ the base64 encoded contents of a file in your app's source project, you can use:
 file_contents = filebase64("${path.app}/config.conf")
 ```
 
-For a complete list of variables, see [variables](/docs/waypoint-hcl/variables)
+For a complete list of variables, see [variables](/waypoint/docs/waypoint-hcl/variables)

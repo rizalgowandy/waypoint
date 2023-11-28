@@ -1,9 +1,10 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
 	"fmt"
-
-	"github.com/golang/protobuf/proto"
 
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
 	"github.com/hashicorp/waypoint/internal/clierrors"
@@ -54,7 +55,7 @@ func (c *AuthMethodInspectCommand) Run(args []string) int {
 		method.Oidc.ClientSecret = "[REDACTED: client secret]"
 	}
 
-	fmt.Println(proto.MarshalTextString(am))
+	fmt.Println(am.String())
 	return 0
 }
 

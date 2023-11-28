@@ -1,13 +1,15 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ptypes
 
 import (
-	"time"
-
-	"github.com/golang/protobuf/ptypes"
-	"github.com/golang/protobuf/ptypes/empty"
+	"github.com/hashicorp/opaqueany"
 	"github.com/imdario/mergo"
 	"github.com/mitchellh/go-testing-interface"
 	"github.com/stretchr/testify/require"
+	empty "google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
 )
@@ -73,7 +75,7 @@ func TestValidDeployment(t testing.T, src *pb.Deployment) *pb.Deployment {
 		src = &pb.Deployment{}
 	}
 
-	deployment, _ := ptypes.MarshalAny(&empty.Empty{})
+	deployment, _ := opaqueany.New(&empty.Empty{})
 
 	require.NoError(t, mergo.Merge(src, &pb.Deployment{
 		Application: &pb.Ref_Application{
@@ -97,7 +99,7 @@ func TestValidRelease(t testing.T, src *pb.Release) *pb.Release {
 		src = &pb.Release{}
 	}
 
-	release, _ := ptypes.MarshalAny(&empty.Empty{})
+	release, _ := opaqueany.New(&empty.Empty{})
 
 	require.NoError(t, mergo.Merge(src, &pb.Release{
 		Application: &pb.Ref_Application{
@@ -164,9 +166,20 @@ func TestValidTrigger(t testing.T, src *pb.Trigger) *pb.Trigger {
 	return src
 }
 
+func TestValidTask(t testing.T, src *pb.Task) *pb.Task {
+	t.Helper()
+
+	if src == nil {
+		src = &pb.Task{}
+	}
+
+	require.NoError(t, mergo.Merge(src, &pb.Task{}))
+
+	return src
+}
+
 func testStatus(t testing.T) *pb.Status {
-	pt, err := ptypes.TimestampProto(time.Now())
-	require.NoError(t, err)
+	pt := timestamppb.Now()
 
 	return &pb.Status{
 		State:        pb.Status_SUCCESS,

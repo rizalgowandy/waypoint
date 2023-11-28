@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package k8s
 
 import (
@@ -250,7 +253,9 @@ func (cs *ConfigSourcer) Documentation() (*docs.Documentation, error) {
 		return nil, err
 	}
 
-	doc.Description("Read configuration values from Kubernetes ConfigMap or Secret resources.")
+	doc.Description("Read configuration values from Kubernetes ConfigMap or Secret resources. " +
+		"Note that to read a config value from a Secret, you must set `secret = true`. Otherwise " +
+		"Waypoint will load a dynamic value from a ConfigMap.")
 
 	doc.Example(`
 config {

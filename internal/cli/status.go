@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
@@ -7,8 +10,6 @@ import (
 	"strings"
 
 	"github.com/dustin/go-humanize"
-	"github.com/golang/protobuf/ptypes"
-	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/pkg/errors"
 	"github.com/posener/complete"
 	"google.golang.org/grpc/codes"
@@ -267,6 +268,7 @@ func (c *StatusCommand) refreshAppStatus(
 		Application: app.Name,
 		Project:     project.Name,
 	}}
+
 	err := c.DoApp(c.Ctx, func(ctx context.Context, appClient *clientpkg.App) error {
 		// Get our API client
 		client := c.project.Client()
@@ -567,9 +569,14 @@ func (c *StatusCommand) FormatAppStatus(projectTarget string, appTarget string) 
 		return err
 	}
 
-	deployHeaders := []string{
+	// deployment and releases use the same headers, with the exception that
+	// deployment lists an additional item for instances count
+	releaseHeaders := []string{
 		"App Name", "Version", "Workspace", "Platform", "Artifact", "Lifecycle State",
 	}
+
+	// Add "Instance Count" for deployment summary headers
+	deployHeaders := append(releaseHeaders, "Instances Count")
 
 	deployTbl := terminal.NewTable(deployHeaders...)
 
@@ -585,7 +592,12 @@ func (c *StatusCommand) FormatAppStatus(projectTarget string, appTarget string) 
 	if len(respDeployList.Deployments) > 0 {
 		deployBundle := respDeployList.Deployments[0]
 		deploy := deployBundle.Deployment
-		appDeployStatus := respDeployList.Deployments[0].LatestStatusReport
+		appDeployStatus := deployBundle.LatestStatusReport
+
+		var instancesCount uint32
+		if appDeployStatus != nil {
+			instancesCount = appDeployStatus.InstancesCount
+		}
 		statusColor := ""
 
 		var details string
@@ -595,7 +607,11 @@ func (c *StatusCommand) FormatAppStatus(projectTarget string, appTarget string) 
 				details = artDetails
 			}
 			if img, ok := deployBundle.Build.Labels["common/image-id"]; ok {
-				img = shortImg(img)
+				img, err = shortImg(img)
+				if err != nil {
+					c.ui.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
+					return err
+				}
 
 				details = details + " image:" + img
 			}
@@ -608,6 +624,7 @@ func (c *StatusCommand) FormatAppStatus(projectTarget string, appTarget string) 
 			deploy.Component.Name,
 			details,
 			deploy.Status.State.String(),
+			fmt.Sprintf("%d", instancesCount),
 		}
 
 		// Add column data to table
@@ -634,11 +651,7 @@ func (c *StatusCommand) FormatAppStatus(projectTarget string, appTarget string) 
 			for _, dr := range appDeployStatus.Resources {
 				var createdTime string
 				if dr.CreatedTime != nil {
-					t, err := ptypes.Timestamp(dr.CreatedTime)
-					if err != nil {
-						return err
-					}
-					createdTime = humanize.Time(t)
+					createdTime = humanize.Time(dr.CreatedTime.AsTime())
 				}
 
 				columns := []string{
@@ -675,7 +688,7 @@ func (c *StatusCommand) FormatAppStatus(projectTarget string, appTarget string) 
 	}
 
 	// Same headers as deploy
-	releaseTbl := terminal.NewTable(deployHeaders...)
+	releaseTbl := terminal.NewTable(releaseHeaders...)
 	releaseResourcesTbl := terminal.NewTable(resourcesHeaders...)
 
 	releaseUnimplemented := true
@@ -696,7 +709,11 @@ func (c *StatusCommand) FormatAppStatus(projectTarget string, appTarget string) 
 				details = artDetails
 			}
 			if img, ok := release.Preload.Build.Labels["common/image-id"]; ok {
-				img = shortImg(img)
+				img, err = shortImg(img)
+				if err != nil {
+					c.ui.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
+					return err
+				}
 
 				details = details + " image:" + img
 			}
@@ -734,11 +751,7 @@ func (c *StatusCommand) FormatAppStatus(projectTarget string, appTarget string) 
 				for _, rr := range appReleaseStatus.Resources {
 					var createdTime string
 					if rr.CreatedTime != nil {
-						t, err := ptypes.Timestamp(rr.CreatedTime)
-						if err != nil {
-							return err
-						}
-						createdTime = humanize.Time(t)
+						createdTime = humanize.Time(rr.CreatedTime.AsTime())
 					}
 
 					columns := []string{
@@ -828,7 +841,7 @@ func (c *StatusCommand) FormatProjectStatus() error {
 	// Get our API client
 	client := c.project.Client()
 
-	projectResp, err := client.ListProjects(c.Ctx, &empty.Empty{})
+	projectResp, err := client.ListProjects(c.Ctx, &pb.ListProjectsRequest{Pagination: &pb.PaginationRequest{}})
 	if err != nil {
 		c.ui.Output("Failed to retrieve all projects:"+clierrors.Humanize(err), terminal.WithErrorStyle())
 		return err

@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
@@ -5,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/posener/complete"
 
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
@@ -17,6 +19,8 @@ import (
 
 type LogsCommand struct {
 	*baseCommand
+
+	flagDeploySeq string
 }
 
 var logColors = map[pb.LogBatch_Entry_Source]*color.Color{
@@ -35,7 +39,7 @@ func (c *LogsCommand) Run(args []string) int {
 	}
 
 	err := c.DoApp(c.Ctx, func(ctx context.Context, app *clientpkg.App) error {
-		stream, err := app.Logs(ctx)
+		stream, err := app.Logs(ctx, c.flagDeploySeq)
 		if err != nil {
 			if !clierrors.IsCanceled(err) {
 				app.UI.Output("Error reading logs: %s", err, terminal.WithErrorStyle())
@@ -63,7 +67,7 @@ func (c *LogsCommand) Run(args []string) int {
 				// We use this format rather than regular RFC3339Nano because we use .0
 				// instead of .9, which preserves the spacing so the output is always
 				// lined up
-				tsRaw, _ := ptypes.Timestamp(event.Timestamp)
+				tsRaw := event.Timestamp.AsTime()
 				ts := tsRaw.Format("2006-01-02T15:04:05.000Z07:00")
 				short := batch.InstanceId
 				if len(short) > 6 {
@@ -100,7 +104,16 @@ func (c *LogsCommand) Run(args []string) int {
 }
 
 func (c *LogsCommand) Flags() *flag.Sets {
-	return c.flagSet(flagSetOperation, nil)
+	return c.flagSet(flagSetOperation, func(set *flag.Sets) {
+		f := set.NewSet("Command Options")
+		f.StringVar(&flag.StringVar{
+			Name: "deployment-seq",
+			Usage: "Get logs for a specific deployment of the app using the deployment " +
+				"sequence number. Not valid with the -workspace param as deployment sequence " +
+				"numbers span across workspaces.",
+			Target: &c.flagDeploySeq,
+		})
+	})
 }
 
 func (c *LogsCommand) AutocompleteArgs() complete.Predictor {

@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package httpapi
 
 import (
@@ -9,8 +12,8 @@ import (
 	"nhooyr.io/websocket/wspb"
 
 	"github.com/hashicorp/waypoint/internal/clicontext"
-	"github.com/hashicorp/waypoint/internal/serverclient"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
+	"github.com/hashicorp/waypoint/pkg/serverclient"
 	"github.com/hashicorp/waypoint/pkg/serverconfig"
 )
 

@@ -1,27 +1,55 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package runner
 
 import (
 	"context"
 	"fmt"
 	"io"
+	"math/rand"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
+	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/pkg/errors"
-
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
-	"github.com/hashicorp/waypoint/internal/serverclient"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
+	"github.com/hashicorp/waypoint/pkg/tokenutil"
 )
 
 var heartbeatDuration = 5 * time.Second
+
+// AcceptParallel allows up to count jobs to be accepted and executing
+// concurrently.
+func (r *Runner) AcceptParallel(ctx context.Context, count int) {
+	// Create a new cancellable context so we can stop all the goroutines
+	// when one exits. We do this because if one exits, its likely that the
+	// unrecoverable error exists in all.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Start up all the goroutines
+	r.logger.Info("accepting jobs concurrently", "count", count)
+	var wg sync.WaitGroup
+	wg.Add(count)
+	for i := 0; i < count; i++ {
+		go func() {
+			defer cancel()
+			defer wg.Done()
+			r.AcceptMany(ctx)
+		}()
+	}
+
+	// Wait for them to exit
+	wg.Wait()
+}
 
 // AcceptMany will accept jobs and execute them on after another as they are accepted.
 // This is meant to be run in a goroutine and reports its own errors via r's logger.
@@ -38,19 +66,25 @@ func (r *Runner) AcceptMany(ctx context.Context) {
 				// the context being closed first, in which case we honor that as a valid
 				// reason to stop accepting jobs.
 				return
+			case codes.PermissionDenied:
+				// This means the runner was deregistered and we must exit.
+				// This won't be fixed unless the runner is closed and restarted.
+				r.logger.Error("runner unexpectedly deregistered, exiting")
+				time.Sleep(5 * time.Second)
+				return
 
 			case codes.NotFound:
 				// This means the runner was deregistered and we must exit.
 				// This won't be fixed unless the runner is closed and restarted.
 				r.logger.Error("runner unexpectedly deregistered, exiting")
 				return
+			case codes.Unavailable, codes.Unimplemented:
+				// Server became unavailable. Unimplemented likely means that the server
+				// is running behind a proxy and is failing health checks.
 
-			case codes.Unavailable:
-				// Server became unavailable. Let's just sleep to give the
-				// server time to come back.
-				r.logger.Warn("server unavailable, sleeping before retry")
-				time.Sleep(2 * time.Second)
-
+				// Let's just sleep to give the server time to come back.
+				r.logger.Warn("server unavailable, sleeping before retry", "error", err)
+				time.Sleep(time.Duration(2+rand.Intn(3)) * time.Second)
 			default:
 				r.logger.Error("error running job", "error", err)
 			}
@@ -89,6 +123,7 @@ func (r *Runner) AcceptExact(ctx context.Context, id string) error {
 
 var testRecvDelay time.Duration
 
+//nolint:govet,lostcancel
 func (r *Runner) accept(ctx context.Context, id string) error {
 	if r.readState(&r.stateExit) > 0 {
 		return ErrClosed
@@ -96,56 +131,125 @@ func (r *Runner) accept(ctx context.Context, id string) error {
 
 	log := r.logger
 
-	// Setup a new context that we can cancel at any time to close the stream.
-	// We use this for timeouts.
-	streamCtx, streamCancel := context.WithCancel(r.runningCtx)
-	defer streamCancel()
-
 	// The runningCtx has the token that is set during runner adoption.
 	// This is required for API calls to succeed. Put the token into ctx
 	// as well so that this can be used for API calls.
-	if tok := serverclient.TokenFromContext(r.runningCtx); tok != "" {
-		ctx = serverclient.TokenWithContext(ctx, tok)
+	if tok := tokenutil.TokenFromContext(r.runningCtx); tok != "" {
+		ctx = tokenutil.TokenWithContext(ctx, tok)
 	}
 
+	// Retry tracks whether we're trying a job stream connection or not.
+	// We use this so that the first attempt fails fast so we can log it.
+	// Subsequent attempts block.
+	retry := false
+
+	// State we want to initialize outside the retry label.
+	var client pb.Waypoint_RunnerJobStreamClient
+	var streamCtx context.Context
+	var streamCancel context.CancelFunc
+	var streamCtxLock sync.Mutex
+	var stateGen uint64
+	var err error
+
+	// We wrap this in a func() so that we use the latest client value
+	// and don't stack defers on retry.
+	defer func() {
+		if client != nil {
+			client.CloseSend()
+		}
+
+		streamCtxLock.Lock()
+		defer streamCtxLock.Unlock()
+		if streamCancel != nil {
+			streamCancel()
+		}
+	}()
+
+	// If we have a timeout, then we setup a timer for accepting.
+	var acceptTimer *time.Timer
+	var canceled int32
+	if r.acceptTimeout > 0 {
+		acceptTimer = time.AfterFunc(r.acceptTimeout, func() {
+			log.Error("runner timed out waiting for a job",
+				"timeout", r.acceptTimeout.String())
+
+			// Grab this lock before updating canceled. You don't
+			// need to have this lock to touch canceled (we use atomic ops)
+			// but it is used when the streamCancel is being reset so that
+			// we don't set it up and race with cancellation.
+			streamCtxLock.Lock()
+			defer streamCtxLock.Unlock()
+
+			// Mark that we canceled
+			atomic.StoreInt32(&canceled, 1)
+
+			// Cancel the context
+			if streamCancel != nil {
+				streamCancel()
+			}
+		})
+	}
+
+RESTART_JOB_STREAM:
+	// If we're retrying, these might be non-nil and we want to do some clean-up
+	if retry {
+		log.Warn("server down before accepting a job, will reconnect")
+
+		if client != nil {
+			client.CloseSend()
+		}
+	}
+
+	// Setup a new context that we can cancel at any time to close the stream.
+	// We use this for timeouts.
+	//
+	// Note: we disable the lostcancel linter for streamCancel because
+	// golangci-lint is not detecting that we have the defer above the
+	// label as well as the retry block above.
+	streamCtxLock.Lock()
+	if streamCancel != nil {
+		streamCancel()
+	}
+	if atomic.LoadInt32(&canceled) > 0 {
+		streamCtxLock.Unlock()
+		return ErrTimeout
+	}
+	streamCtx, streamCancel = context.WithCancel(r.runningCtx)
+	streamCtxLock.Unlock()
+
+	// Since this is a disconnect, we have to wait for our
+	// RunnerConfig stream to re-establish. We wait for the config
+	// generation to increment.
+	if retry {
+		if r.waitStateGreater(&r.stateConfig, stateGen) {
+			return status.Error(codes.Internal, "early exit while waiting for reconnect")
+		}
+	}
+
+	// Get our configuration state value. We use this so that we can detect
+	// when we've reconnected during failures.
+	stateGen = r.readState(&r.stateConfig)
+
 	// Open a new job stream. This retries on connection errors. Note that
-	// this loop doesn't respect the accept timeout because gRPC has no way
+	// this retry loop doesn't respect the accept timeout because gRPC has no way
 	// to time out of a "WaitForReady" RPC call (it ignores context cancellation,
 	// too). TODO: do a manual backoff with WaitForReady(false) so we can
 	// weave in accept timeout.
-	retry := false
-	var client pb.Waypoint_RunnerJobStreamClient
-	for {
-		// Get our configuration state value. We use this so that we can detect
-		// when we've reconnected during failures.
-		stateGen := r.readState(&r.stateConfig)
-
-		// NOTE: we purposely do NOT use ctx above since if the context is
-		// cancelled we want to continue reporting errors.
-		log.Debug("opening job stream", "retry", retry)
-		var err error
-		client, err = r.client.RunnerJobStream(streamCtx, grpc.WaitForReady(retry))
-		if err != nil {
-			if status.Code(err) == codes.Unavailable || status.Code(err) == codes.NotFound {
-				log.Warn("server down during job stream open, will attempt reconnect")
-
-				// Since this is a disconnect, we have to wait for our
-				// RunnerConfig stream to re-establish. We wait for the config
-				// generation to increment.
-				if r.waitStateGreater(&r.stateConfig, stateGen) {
-					return status.Error(codes.Internal, "early exit while waiting for reconnect")
-				}
-
-				retry = true
-				continue
-			}
-
-			return err
+	log.Debug("opening job stream", "retry", retry)
+	client, err = r.client.RunnerJobStream(streamCtx, grpc.WaitForReady(retry))
+	retry = true
+	if err != nil {
+		if atomic.LoadInt32(&canceled) > 0 ||
+			status.Code(err) == codes.Unavailable ||
+			status.Code(err) == codes.NotFound {
+			// Throttle ourselves so that we don't hammer the server in the case that
+			// we've been deleted and are not likely to return.
+			time.Sleep(time.Duration(2+rand.Intn(3)) * time.Second)
+			goto RESTART_JOB_STREAM
 		}
 
-		break
+		return err
 	}
-	defer client.CloseSend()
 
 	// Send our request
 	log.Trace("sending job request")
@@ -156,35 +260,27 @@ func (r *Runner) accept(ctx context.Context, id string) error {
 			},
 		},
 	}); err != nil {
+		if atomic.LoadInt32(&canceled) > 0 ||
+			status.Code(err) == codes.Unavailable ||
+			status.Code(err) == codes.NotFound {
+			goto RESTART_JOB_STREAM
+		}
+
 		return err
 	}
 
 	// Wait for an assignment
 	log.Info("waiting for job assignment")
 
-	// If we have a timeout, then we setup a timer for accepting.
-	var acceptTimer *time.Timer
-	var canceled int32
-	if r.acceptTimeout > 0 {
-		acceptTimer = time.AfterFunc(r.acceptTimeout, func() {
-			log.Error("runner timed out waiting for a job",
-				"timeout", r.acceptTimeout.String())
-
-			// Mark that we canceled
-			atomic.StoreInt32(&canceled, 1)
-
-			// Cancel the context
-			streamCancel()
-		})
-	}
-
 	// NOTE: if r.runningCtx is canceled, because the runner has finished closing,
 	// any job sent won't be acked, but the server will see an error on waiting
 	// for us to ack the job, and auto-nack it.
 	resp, err := client.Recv()
 	if err != nil {
-		if atomic.LoadInt32(&canceled) > 0 {
-			return ErrTimeout
+		if atomic.LoadInt32(&canceled) > 0 ||
+			status.Code(err) == codes.Unavailable ||
+			status.Code(err) == codes.NotFound {
+			goto RESTART_JOB_STREAM
 		}
 
 		return err
@@ -202,8 +298,9 @@ func (r *Runner) accept(ctx context.Context, id string) error {
 			"expected job assignment, server sent %T",
 			resp.Event)
 	}
+	jobId := assignment.Assignment.Job.Id
 	log = log.With(
-		"job_id", assignment.Assignment.Job.Id,
+		"job_id", jobId,
 		"job_op", fmt.Sprintf("%T", assignment.Assignment.Job.Operation),
 	)
 	log.Info("job assignment received")
@@ -225,10 +322,6 @@ func (r *Runner) accept(ctx context.Context, id string) error {
 	}
 	r.runningCond.L.Unlock()
 
-	if shutdown {
-		return errors.Wrapf(ErrClosed, "runner shutdown, dropped job: %s", assignment.Assignment.Job.Id)
-	}
-
 	defer func() {
 		r.runningCond.L.Lock()
 		defer r.runningCond.L.Unlock()
@@ -237,15 +330,24 @@ func (r *Runner) accept(ctx context.Context, id string) error {
 		r.runningCond.Broadcast()
 	}()
 
+	if shutdown {
+		return errors.Wrapf(ErrClosed, "runner shutdown, dropped job: %s", jobId)
+	}
+
 	// If this isn't the job we expected then we nack and error.
 	if id != "" {
-		if assignment.Assignment.Job.Id != id {
+		if jobId != id {
 			log.Warn("unexpected job id for exact match, nacking")
 			if err := client.Send(&pb.RunnerJobStreamRequest{
 				Event: &pb.RunnerJobStreamRequest_Error_{
 					Error: &pb.RunnerJobStreamRequest_Error{},
 				},
 			}); err != nil {
+				// We don't restart the accept here on disconnect because
+				// we already know we're in an error state that was truly
+				// unexpected and erroneous: the server gave us a job that
+				// wasn't assignd to us! Let's return.
+
 				return err
 			}
 
@@ -262,7 +364,31 @@ func (r *Runner) accept(ctx context.Context, id string) error {
 			Ack: &pb.RunnerJobStreamRequest_Ack{},
 		},
 	}); err != nil {
+		// This is sort of sketchy situation, but this comment is here to tell
+		// you why its safe. At this point, the error should only be if the ack
+		// failed to send so the server shouldn't have received the ack. However,
+		// if they did, this goto will abandon the job. That's okay, it'll be
+		// stuck for the heartbeat period and then the job manager will kill
+		// it. That's unfortunate but unlikely to happen in practice and not
+		// a bad outcome since no logic is ever executed for the job.
+		if status.Code(err) == codes.Unavailable ||
+			status.Code(err) == codes.NotFound {
+			goto RESTART_JOB_STREAM
+		}
+
 		return err
+	}
+
+	// Now that we've acked the job, we can create the re-attachable client.
+	// Note: we use this context and not the new one below so that we
+	// continue to reconnect even if our job is done since we need to still
+	// send job complete messages.
+	client = &reattachClient{
+		ctx:    ctx,
+		client: client,
+		log:    log.Named("job_stream").With("job_id", jobId),
+		runner: r,
+		jobId:  jobId,
 	}
 
 	// Create a cancelable context so we can stop if job is canceled
@@ -339,7 +465,7 @@ func (r *Runner) accept(ctx context.Context, id string) error {
 	// The job stream setup is done. Actually run the job, download any
 	// data necessary, setup the core, etc
 	log.Info("starting job execution")
-	result, err := r.prepareAndExecuteJob(ctx, log, ui, &sendMutex, client, assignment.Assignment.Job)
+	result, err := r.prepareAndExecuteJob(ctx, log, ui, &sendMutex, client, assignment.Assignment)
 	log.Debug("job finished", "error", err)
 
 	// We won't output anything else to the UI anymore.
@@ -420,8 +546,9 @@ func (r *Runner) prepareAndExecuteJob(
 	ui terminal.UI,
 	sendMutex *sync.Mutex,
 	client pb.Waypoint_RunnerJobStreamClient,
-	job *pb.Job,
+	assignment *pb.RunnerJobStreamResponse_JobAssignment,
 ) (*pb.Job_Result, error) {
+	job := assignment.Job
 	log.Trace("preparing to execute job operation", "type", hclog.Fmt("%T", job.Operation))
 
 	// Some operation types don't need to download data, execute those here.
@@ -432,6 +559,8 @@ func (r *Runner) prepareAndExecuteJob(
 		return r.executeStartTaskOp(ctx, log, ui, job)
 	case *pb.Job_StopTask:
 		return r.executeStopTaskOp(ctx, log, ui, job)
+	case *pb.Job_WatchTask:
+		return r.executeWatchTaskOp(ctx, log, ui, job)
 	}
 
 	// We need to get our data source next prior to executing.
@@ -482,7 +611,7 @@ func (r *Runner) prepareAndExecuteJob(
 		if err == nil {
 			// Execute the job. We have to close the UI right afterwards to
 			// ensure that no more output is written to the client.
-			result, err = r.executeJob(ctx, log, ui, job, wd, sendMutex, client)
+			result, err = r.executeJob(ctx, log, ui, assignment, wd, sendMutex, client)
 		}
 	}
 

@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package core
 
 import (
@@ -5,11 +8,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/golang/protobuf/ptypes"
-	"github.com/golang/protobuf/ptypes/any"
-	"github.com/golang/protobuf/ptypes/empty"
+	"github.com/hashicorp/opaqueany"
 	mockpkg "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	empty "google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/hashicorp/waypoint-plugin-sdk/component"
 	componentmocks "github.com/hashicorp/waypoint-plugin-sdk/component/mocks"
@@ -87,9 +89,9 @@ func TestAppDestroyRelease_happy(t *testing.T) {
 	), "test")
 
 	// Expect to have the destroy function called
-	deployment, err := ptypes.MarshalAny(&empty.Empty{})
+	deployment, err := opaqueany.New(&empty.Empty{})
 	require.NoError(err)
-	mock.Destroyer.On("DestroyFunc").Return(func(v *any.Any) error {
+	mock.Destroyer.On("DestroyFunc").Return(func(v *opaqueany.Any) error {
 		if v == nil || v != deployment {
 			return fmt.Errorf("value didn't match")
 		}

@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package appconfig
 
 import (
@@ -24,11 +27,20 @@ func (cs *StaticConfigSourcer) readFunc(
 	reqs []*component.ConfigRequest,
 ) ([]*pb.ConfigSource_Value, error) {
 	var results []*pb.ConfigSource_Value
+
 	for _, req := range reqs {
 		if v, ok := req.Config["value"]; ok && v != "" {
 			result := &pb.ConfigSource_Value{Name: req.Name}
 			result.Result = &pb.ConfigSource_Value_Value{
 				Value: req.Config["value"],
+			}
+			results = append(results, result)
+		}
+
+		if v, ok := req.Config["json"]; ok && v != "" {
+			result := &pb.ConfigSource_Value{Name: req.Name}
+			result.Result = &pb.ConfigSource_Value_Json{
+				Json: []byte(req.Config["json"]),
 			}
 			results = append(results, result)
 		}

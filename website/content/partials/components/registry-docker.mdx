@@ -23,11 +23,33 @@ build {
 
 ### Required Parameters
 
-These parameters are used in the [`use` stanza](/docs/waypoint-hcl/use) for this plugin.
+These parameters are used in the [`use` stanza](/waypoint/docs/waypoint-hcl/use) for this plugin.
+
+#### image
+
+The image to push the local image to, fully qualified.
+
+This value must be the fully qualified name to the image. for example: gcr.io/waypoint-demo/demo.
+
+- Type: **string**
+
+#### tag
+
+The tag for the new image.
+
+This is added to image to provide the full image reference.
+
+- Type: **string**
+
+### Optional Parameters
+
+These parameters are used in the [`use` stanza](/waypoint/docs/waypoint-hcl/use) for this plugin.
 
 #### auth (category)
 
 The authentication information to log into the docker repository.
+
+- **Optional**
 
 ##### auth.auth
 
@@ -81,26 +103,6 @@ Username of Docker registry account.
 - Type: **string**
 - **Optional**
 
-#### image
-
-The image to push the local image to, fully qualified.
-
-This value must be the fully qualified name to the image. for example: gcr.io/waypoint-demo/demo.
-
-- Type: **string**
-
-#### tag
-
-The tag for the new image.
-
-This is added to image to provide the full image reference.
-
-- Type: **string**
-
-### Optional Parameters
-
-These parameters are used in the [`use` stanza](/docs/waypoint-hcl/use) for this plugin.
-
 #### encoded_auth
 
 The authentication information to log into the docker repository.
@@ -147,7 +149,7 @@ This optional conflicts with encoded_auth and thusly only one can be used at a t
 
 ### Output Attributes
 
-Output attributes can be used in your `waypoint.hcl` as [variables](/docs/waypoint-hcl/variables) via [`artifact`](/docs/waypoint-hcl/variables/artifact) or [`deploy`](/docs/waypoint-hcl/variables/deploy).
+Output attributes can be used in your `waypoint.hcl` as [variables](/waypoint/docs/waypoint-hcl/variables) via [`artifact`](/waypoint/docs/waypoint-hcl/variables/artifact) or [`deploy`](/waypoint/docs/waypoint-hcl/variables/deploy).
 
 #### architecture
 

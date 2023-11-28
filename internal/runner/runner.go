@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package runner
 
 import (
@@ -16,9 +19,9 @@ import (
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
 	"github.com/hashicorp/waypoint/internal/factory"
 	"github.com/hashicorp/waypoint/internal/plugin"
-	"github.com/hashicorp/waypoint/internal/serverclient"
 	"github.com/hashicorp/waypoint/pkg/server"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
+	"github.com/hashicorp/waypoint/pkg/tokenutil"
 )
 
 var (
@@ -39,20 +42,19 @@ const (
 //
 // To use a runner:
 //
-//   1. Initialize it with New. This will setup some initial state but
-//      will not register with the server or run jobs.
+//  1. Initialize it with New. This will setup some initial state but
+//     will not register with the server or run jobs.
 //
-//   2. Start the runner with "Start". This will register the runner and
-//      kick off some management goroutines. This will not execute any jobs.
+//  2. Start the runner with "Start". This will register the runner and
+//     kick off some management goroutines. This will not execute any jobs.
 //
-//   3. Run a single job with "Accept". This is named to be similar to a
-//      network listener "accepting" a connection. This will request a single
-//      job from the Waypoint server, block until one is available, and execute
-//      it. Repeat this call for however many jobs you want to execute.
+//  3. Run a single job with "Accept". This is named to be similar to a
+//     network listener "accepting" a connection. This will request a single
+//     job from the Waypoint server, block until one is available, and execute
+//     it. Repeat this call for however many jobs you want to execute.
 //
-//   4. Clean up with "Close". This will gracefully exit the runner, waiting
-//      for any running jobs to finish.
-//
+//  4. Clean up with "Close". This will gracefully exit the runner, waiting
+//     for any running jobs to finish.
 type Runner struct {
 	id          string
 	logger      hclog.Logger
@@ -252,8 +254,8 @@ func (r *Runner) Start(ctx context.Context) error {
 	} else if t != "" {
 		adopt = true
 		log.Debug("will use prior token from state directory")
-		tokenCtx = serverclient.TokenWithContext(tokenCtx, t)
-		r.runningCtx = serverclient.TokenWithContext(r.runningCtx, t)
+		tokenCtx = tokenutil.TokenWithContext(tokenCtx, t)
+		r.runningCtx = tokenutil.TokenWithContext(r.runningCtx, t)
 	}
 
 	// If we have a cookie set, we always adopt.
@@ -292,7 +294,7 @@ func (r *Runner) Start(ctx context.Context) error {
 				// It is possible that we do NOT have a token, because our current
 				// token is already valid.
 				log.Debug("runner adoption complete, new token received")
-				r.runningCtx = serverclient.TokenWithContext(r.runningCtx, tokenResp.Token)
+				r.runningCtx = tokenutil.TokenWithContext(r.runningCtx, tokenResp.Token)
 
 				// Persist our token
 				if err := r.statePutToken(tokenResp.Token); err != nil {
@@ -419,7 +421,7 @@ type Option func(*Runner, *config) error
 // attempt any connection at all regardless of other configuration (env
 // vars or waypoint config file). This will be used.
 //
-// If this is specified, the client MUST use a serverclient.ContextToken
+// If this is specified, the client MUST use a tokenutil.ContextToken
 // type for the PerRPCCredentials setting. This package and others will use
 // context overrides for the token. If you do not use this, things will break.
 func WithClient(client pb.WaypointClient) Option {
@@ -509,8 +511,8 @@ func WithCookie(v string) Option {
 // state between restarts. This is optional, a runner can be stateless, but
 // has some limitations. The state dir enables:
 //
-//   * persisted runner ID across restarts
-//   * persisted adoption token across restarts
+//   - persisted runner ID across restarts
+//   - persisted adoption token across restarts
 //
 // The state directory will be created if it does not exist.
 func WithStateDir(v string) Option {

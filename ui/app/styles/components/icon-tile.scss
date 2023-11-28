@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 :root {
   --tile: #{dehex(color.$ui-cool-gray-050)};
   --tile-icon: #{dehex(color.$blue-500)};

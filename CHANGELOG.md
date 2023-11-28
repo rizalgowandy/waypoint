@@ -6,6 +6,530 @@ IMPROVEMENTS:
 
 BUG FIXES:
 
+## October 11, 2023
+
+HashiCorp Waypoint Community Edition is no longer actively maintained. For additional information on the new vision of Waypoint, check out [this blog post](https://www.hashicorp.com/blog/a-new-vision-for-hcp-waypoint) and the [HCP Waypoint documentation](https://developer.hashicorp.com/hcp/docs/waypoint).
+
+
+## 0.11.4 (August 9, 2023)
+
+IMPROVEMENTS:
+
+* plugin/aws/ecr-pull: Support entrypoint injection in ecr-pull builder [[GH-4847](https://github.com/hashicorp/waypoint/issues/4847)]
+
+BUG FIXES:
+
+* cli: Fix possible issues with deleted applications or projects failing to render in output [[GH-4867](https://github.com/hashicorp/waypoint/issues/4867)]
+* runneruninstall/aws-ecs: Fix installing runners in new AWS accounts by fixing an inline policy syntax error. [[GH-4873](https://github.com/hashicorp/waypoint/issues/4873)]
+
+## 0.11.3 (July 18, 2023)
+
+IMPROVEMENTS:
+
+* cli: Add config source's plugin type, scope, project, app, and workspace to
+  output of `waypoint config source-get` when getting a specific config source. [[GH-4822](https://github.com/hashicorp/waypoint/issues/4822)]
+* cli: Add option `all` to flag `-scope` on `waypoint config source-get` command
+  to output all config sources. [[GH-4822](https://github.com/hashicorp/waypoint/issues/4822)]
+
+BUG FIXES:
+
+* runnerinstall/aws-ecs: Fix ODR policy for AWS ECS runners to enable adding tags
+  to an ALB. [[GH-4818](https://github.com/hashicorp/waypoint/issues/4818)]
+* runnerinstall/ecs: Add IAM permission required for project destruction [[GH-4840](https://github.com/hashicorp/waypoint/issues/4840)]
+* runneruninstall/aws-ecs: Fix panic when uninstalling ECS runner after failing to find EFS [[GH-4829](https://github.com/hashicorp/waypoint/issues/4829)]
+
+## 0.11.2 (June 15, 2023)
+
+IMPROVEMENTS:
+
+* cli,server: Introduce explicit `delete` endpoint for CLI and Server for Config
+  and Config Sourcers. [[GH-4754](https://github.com/hashicorp/waypoint/issues/4754)]
+* cli: Use -w flag for workspace scoping on `config set` and `config delete`,
+  instead of `workspace-scope`. [[GH-4770](https://github.com/hashicorp/waypoint/issues/4770)]
+* plugin/aws-ecs: Add config options for the target group protocol and protocol
+  version. [[GH-4742](https://github.com/hashicorp/waypoint/issues/4742)]
+* runnerinstall/nomad: Add CLI flags for setting custom CPU and memory resources. [[GH-4798](https://github.com/hashicorp/waypoint/issues/4798)]
+* serverinstall/nomad: Add config flag `-nomad-host-network` for specifying the
+  host network of the Waypoint server Nomad job's gRPC and HTTP (UI) ports. [[GH-4804](https://github.com/hashicorp/waypoint/issues/4804)]
+
+BUG FIXES:
+
+* auth: Prevent a runner token from generating a new token for a different runner [[GH-4707](https://github.com/hashicorp/waypoint/issues/4707)]
+* builtin: de-dupe various hcl annotation keys [[GH-4701](https://github.com/hashicorp/waypoint/issues/4701)]
+* cli: Honor runner install -platform arg [[GH-4699](https://github.com/hashicorp/waypoint/issues/4699)]
+* config-sources: Return correct workspace-scoped config sources at the global
+  scope, when a workspace is specified. [[GH-4774](https://github.com/hashicorp/waypoint/issues/4774)]
+* config: Remove extra eval context append for parsing configs which caused a slowdown during pipeline config parsing. [[GH-4744](https://github.com/hashicorp/waypoint/issues/4744)]
+* plugin/aws-ecs: Destroy the ALB only if it is managed by Waypoint. [[GH-4742](https://github.com/hashicorp/waypoint/issues/4742)]
+* plugin/aws-ecs: Fix failure when destroying the target group during a release
+  destroy operation. [[GH-4742](https://github.com/hashicorp/waypoint/issues/4742)]
+* plugin/aws-ecs: Fix panic when settings `grpc_code` or `http_code` for a health
+  check. [[GH-4742](https://github.com/hashicorp/waypoint/issues/4742)]
+* plugin/aws-ecs: Set the protocol of a health check correctly. [[GH-4742](https://github.com/hashicorp/waypoint/issues/4742)]
+* plugin/azure-aci: Update plugin to attempt CLI auth if environment auth fails. [[GH-4763](https://github.com/hashicorp/waypoint/issues/4763)]
+* plugin/ecs: Make `alb.load_balancer_arn` optional [[GH-4729](https://github.com/hashicorp/waypoint/issues/4729)]
+* plugin/ecs: Set health check timeout and interval values to compatible default
+  values. [[GH-4767](https://github.com/hashicorp/waypoint/issues/4767)]
+* runnerinstall/aws-ecs: Add missing permission to on-demand runner IAM policy. [[GH-4742](https://github.com/hashicorp/waypoint/issues/4742)]
+* runneruninstall/aws-ecs: Fix deletion of file system for AWS ECS runner. [[GH-4792](https://github.com/hashicorp/waypoint/issues/4792)]
+
+## 0.11.1 (May 11, 2023)
+
+IMPROVEMENTS:
+
+* cli: Add a `-verbose` flag to `waypoint job list` to improve relevant columns shown to user
+  at a glance. [[GH-4531](https://github.com/hashicorp/waypoint/issues/4531)]
+* cli: Include job `QueueTime` in output for `waypoint job list` and `waypoint job inspect`. [[GH-4531](https://github.com/hashicorp/waypoint/issues/4531)]
+* cli: Introduce `waypoint runner profile edit` to edit a runners plugin config
+  directly in your configured terminal editor [[GH-4594](https://github.com/hashicorp/waypoint/issues/4594)]
+* cli: Update the `waypoint runner profile set` command to accept an argument
+  for setting the name. This also removes the behavior where if no name was given,
+  it would generate a random one. [[GH-4527](https://github.com/hashicorp/waypoint/issues/4527)]
+* cli: new flags for `waypoint install` on Nomad:
+  -nomad-service-address and -nomad-network-mode [[GH-4619](https://github.com/hashicorp/waypoint/issues/4619)]
+* plugin/ecs: Enable custom health checks for ECS plugin. [[GH-4473](https://github.com/hashicorp/waypoint/issues/4473)]
+* plugin/ecs: Update ECS releaser to verify deployment health before releasing. [[GH-4520](https://github.com/hashicorp/waypoint/issues/4520)]
+
+BUG FIXES:
+
+* builtin/consul: Fix request logger to properly log configured data center [[GH-4670](https://github.com/hashicorp/waypoint/issues/4670)]
+* cli: Avoid panic in empty slice for runner installs platform var. [[GH-4672](https://github.com/hashicorp/waypoint/issues/4672)]
+* cli: Fix load path for custom Waypoint plugins [[GH-4623](https://github.com/hashicorp/waypoint/issues/4623)]
+* core: Ensure project and workspaces cannot be created with malformed names [[GH-4588](https://github.com/hashicorp/waypoint/issues/4588)]
+* internal: Improve git URL string trimming when determining remote URLs [[GH-4675](https://github.com/hashicorp/waypoint/issues/4675)]
+* plugin/ecs: Update ECS destroyer to wait for there to be zero listeners for the
+  target group before destroying the target group. [[GH-4497](https://github.com/hashicorp/waypoint/issues/4497)]
+* trigger: Ensure trigger Name is only alpha-numeric [[GH-4660](https://github.com/hashicorp/waypoint/issues/4660)]
+* ui: Only show health-check “Re-run” button if project has a data source. [[GH-4553](https://github.com/hashicorp/waypoint/issues/4553)]
+
+## 0.11.0 (February 16, 2023)
+
+FEATURES:
+
+* server: Add pagination protobuffs and stubs for pagination in ListProjects [[GH-4203](https://github.com/hashicorp/waypoint/issues/4203)]
+
+IMPROVEMENTS:
+
+* cli: `waypoint job cancel` now outputs additional insights
+when trying to cancel a running job. [[GH-4294](https://github.com/hashicorp/waypoint/issues/4294)]
+* cli: add socket-path flag to runner install [[GH-4246](https://github.com/hashicorp/waypoint/issues/4246)]
+* core: `waypoint job list` will now retrieve paginated list of jobs to avoid
+grpc data limits per request [[GH-4271](https://github.com/hashicorp/waypoint/issues/4271)]
+* core: improve runner job stream error logging [[GH-3872](https://github.com/hashicorp/waypoint/issues/3872)]
+* install/nomad: Allow mount options to be specified when provisioning a volume with CSI plugins [[GH-4387](https://github.com/hashicorp/waypoint/issues/4387)]
+* plugin/aws: Add CORS configuration to lambda-function-url releaser [[GH-4418](https://github.com/hashicorp/waypoint/issues/4418)]
+* plugin/tfc: Allow non-string tfc outputs to be used as waypoint.hcl dynamic default variables [[GH-4357](https://github.com/hashicorp/waypoint/issues/4357)]
+* plugin/tfc: Allow reading all outputs from a tfc workspace with a single variable stanza [[GH-4357](https://github.com/hashicorp/waypoint/issues/4357)]
+* plugins/k8s: Add `prune_whitelist` option to only prune specific resources [[GH-4345](https://github.com/hashicorp/waypoint/issues/4345)]
+* plugins/k8s: Add `security_context` to the TaskLauncherConfig (on-demand runner configuration) [[GH-4346](https://github.com/hashicorp/waypoint/issues/4346)]
+* server: Add UI_GetDeployment convenience endpoint [[GH-3856](https://github.com/hashicorp/waypoint/issues/3856)]
+* server: Enable gRPC-Gateway on the http port of Waypoint server to add in an HTTP API for interfacing [[GH-4379](https://github.com/hashicorp/waypoint/issues/4379)]
+
+BUG FIXES:
+
+* aws/lambda: fix issue where deployment configuration was not injected in to
+Lambda function environments, preventing waypoint-entrypoint from authenticating
+with the Waypoint server [[GH-4328](https://github.com/hashicorp/waypoint/issues/4328)]
+* cli/snapshot: Fix server snapshot when a config source is set. [[GH-4523](https://github.com/hashicorp/waypoint/issues/4523)]
+* cli: Fix panic in `waypoint pipeline list` and `waypoint pipeline inspect` where
+a pipeline run was given with no jobs. [[GH-4424](https://github.com/hashicorp/waypoint/issues/4424)]
+* cli: Show full command flags when displaying help text for `waypoint runner inspect`. [[GH-4435](https://github.com/hashicorp/waypoint/issues/4435)]
+* install/nomad: Fix connectivity to Waypoint server from the CLI at the end of
+the Nomad server install. [[GH-4363](https://github.com/hashicorp/waypoint/issues/4363)]
+* plugin/aws-ecs: Fix bringing your own alb to ecs deployments. [[GH-4457](https://github.com/hashicorp/waypoint/issues/4457)]
+* plugin/k8s-apply: Update the `prune_whitelist` param to match the updated parameter
+in kubectl apply, `prune_allowlist`. It also ensures this param in the plugin
+is optional and not a hard requirement to use the k8s apply plugin. [[GH-4517](https://github.com/hashicorp/waypoint/issues/4517)]
+* ui: fix safari bug with xterm/webgl rendering [[GH-4054](https://github.com/hashicorp/waypoint/issues/4054)]
+* upgrade: Fixes a bug where pre-v0.10.4 config sources could not be updated or
+deleted. [[GH-4382](https://github.com/hashicorp/waypoint/issues/4382)]
+
+
+## 0.10.5 (December 15, 2022)
+
+SECURITY:
+* Waypoint now uses Go 1.19.4 to address security vulnerability (CVE-2022-41717) See the Go announcement for more details.
+
+IMPROVEMENTS:
+
+* cli: Respect `-remote-source` overrides for submitted job template when running
+  `waypoint pipeline run`. [[GH-4319](https://github.com/hashicorp/waypoint/issues/4319)]
+* config: Remove the multi-app deprecation warning.
+  Please see https://discuss.hashicorp.com/t/deprecating-projects-or-how-i-learned-to-love-apps/40888/12 for more information. [[GH-4265](https://github.com/hashicorp/waypoint/issues/4265)]
+
+BUG FIXES:
+
+* plugin/ecs: `runner install` now creates aws policies to facilitate remotely running StopTask and WatchTask jobs [[GH-4296](https://github.com/hashicorp/waypoint/issues/4296)]
+
+## 0.10.4 (December 08, 2022)
+
+FEATURES:
+
+- plugin/ecs: Accept ALB security group IDs. [[GH-4230](https://github.com/hashicorp/waypoint/issues/4230)]
+- plugin/packer: A Packer config sourcer plugin to source machine image IDs from
+  an HCP Packer channel. [[GH-4251](https://github.com/hashicorp/waypoint/issues/4251)]
+
+IMPROVEMENTS:
+
+- cli/runnerinstall: Check if runner is registered to the server before
+  attempting to forget it. [[GH-3944](https://github.com/hashicorp/waypoint/issues/3944)]
+- cli/runnerinstall: Delete EFS file system during ECS runner uninstall. [[GH-3944](https://github.com/hashicorp/waypoint/issues/3944)]
+- cli: `project destroy` requires the `-project` or `-p` flag regardless of where it's run. [[GH-4212](https://github.com/hashicorp/waypoint/issues/4212)]
+- cli: Pipeline run now shows the number of steps successfully executed for a failed run. [[GH-4268](https://github.com/hashicorp/waypoint/issues/4268)]
+
+BUG FIXES:
+
+- cli/context: Fix possible error when listing contexts if a non-Waypoint context file exists in the context directory. [[GH-4257](https://github.com/hashicorp/waypoint/issues/4257)]
+- cli: Ensure a deploy and release URL has a scheme included if not set. [[GH-4208](https://github.com/hashicorp/waypoint/issues/4208)]
+- cli: `project destroy` now successfully destroys a project created in the UI without a remote source or local waypoint.hcl file. [[GH-4212](https://github.com/hashicorp/waypoint/issues/4212)]
+- plugin/nomad: Update Nomad task launcher plugin to use `entrypoint` config - fixes
+  pipeline exec steps run in Nomad. [[GH-4185](https://github.com/hashicorp/waypoint/issues/4185)]
+- plugin/vault: Fix usage of dynamic secrets from Vault for dynamic Waypoint app
+  config. [[GH-3988](https://github.com/hashicorp/waypoint/issues/3988)]
+
+## 0.10.3 (November 03, 2022)
+
+FEATURES:
+
+* plugin/consul: Consul key-value data config sourcer plugin [[GH-4045](https://github.com/hashicorp/waypoint/issues/4045)]
+
+IMPROVEMENTS:
+
+* cli/config-sync: Add operations flags to `config sync` command. [[GH-4143](https://github.com/hashicorp/waypoint/issues/4143)]
+* cli/fmt: Add a `-check` flag that will determine if the `waypoint.hcl` is already
+properly formatted, similar to `terraform fmt -check`. [[GH-4020](https://github.com/hashicorp/waypoint/issues/4020)]
+* cli/pipeline_run: Show app deployment and release URLs if exist from running
+pipeline. Also show input variables used. [[GH-4096](https://github.com/hashicorp/waypoint/issues/4096)]
+* cli: Add prune flags to `waypoint deploy` for configuring the automatic release. [[GH-4114](https://github.com/hashicorp/waypoint/issues/4114)]
+* cli: Introduce new CLI flag `-reattach` for `waypoint pipeline run` which will stream
+an existing pipeline run either by the latest known run or a specific sequence id. [[GH-4042](https://github.com/hashicorp/waypoint/issues/4042)]
+* cli: Only echo file name when config file is formatted with `waypoint fmt`. [[GH-4111](https://github.com/hashicorp/waypoint/issues/4111)]
+* cli: Update `waypoint runner profile inspect` to show default runner profile
+if no name argument supplied. [[GH-4078](https://github.com/hashicorp/waypoint/issues/4078)]
+* core: Auto run a status report after a deployment or release operation rather
+than only if `waypoint deploy` or `waypoint release` CLI is run. [[GH-4099](https://github.com/hashicorp/waypoint/issues/4099)]
+* core: Combine git clone messages from job stream into a single message [[GH-4115](https://github.com/hashicorp/waypoint/issues/4115)]
+* pipelines: Add ability to evaluate input variables in pipelines stanzas. [[GH-4132](https://github.com/hashicorp/waypoint/issues/4132)]
+* ui/input-variables: Adds the ability to set an input variable as sensitive and hides its value from the list and form [[GH-4139](https://github.com/hashicorp/waypoint/issues/4139)]
+
+BUG FIXES:
+
+* cli/runner-profile-set: Fix panic when setting runner profile environment variables [[GH-3995](https://github.com/hashicorp/waypoint/issues/3995)]
+* cli/upgrade: Update the OCI URL for the bootstrap runner profile during `server upgrade` [[GH-4175](https://github.com/hashicorp/waypoint/issues/4175)]
+* cli: Fix bug where input variables were not included on pipeline run jobs. [[GH-4137](https://github.com/hashicorp/waypoint/issues/4137)]
+* cli: Fix panic in `waypoint runner profile set` when no flags are specified. [[GH-4013](https://github.com/hashicorp/waypoint/issues/4013)]
+* cli: Fix panic in cli for `waypoint task cancel` if attempting to cancel by run
+job id with no argument. [[GH-4019](https://github.com/hashicorp/waypoint/issues/4019)]
+* cli: Only show "CompleteTime" on `waypoint pipeline list` if the job has a valid
+complete time. [[GH-4113](https://github.com/hashicorp/waypoint/issues/4113)]
+* cli: Remove automatic uppercasing of ids, so that future runner profiles will match [[GH-4063](https://github.com/hashicorp/waypoint/issues/4063)]
+* cli: Respect the -workspace flag when requesting a logstream for a deployment
+by workspace [[GH-4009](https://github.com/hashicorp/waypoint/issues/4009)]
+* core: Fix panic if no Use stanza found for given workspace scope on a build,
+deploy, release, or registry stanza. [[GH-4112](https://github.com/hashicorp/waypoint/issues/4112)]
+* core: fix panic when null value is set on a string variable [[GH-4067](https://github.com/hashicorp/waypoint/issues/4067)]
+* install/nomad: Update installation with Nomad to use CSI parameters. [[GH-4157](https://github.com/hashicorp/waypoint/issues/4157)]
+* pipelines: Properly mark a pipeline run as complete [[GH-4053](https://github.com/hashicorp/waypoint/issues/4053)]
+* plugin/docker: fix issue with authenticating with registries when using
+docker-pull [[GH-4121](https://github.com/hashicorp/waypoint/issues/4121)]
+
+## 0.10.2 (October 03, 2022)
+
+BREAKING CHANGES:
+
+* plugin/helm: Add support for create_namespace and skip_crds (default is now false) [[GH-3950](https://github.com/hashicorp/waypoint/issues/3950)]
+
+IMPROVEMENTS:
+
+* cli/runnerinstall: Update `runner install` to set the new profile as the default
+if none exists [[GH-3922](https://github.com/hashicorp/waypoint/issues/3922)]
+* cli: A new `-runner-target-any` flag has been added to `runner profile set` to allow users to specify targeting any runner. [[GH-3854](https://github.com/hashicorp/waypoint/issues/3854)]
+* cli: Setting configurations in a runner profile no longer resets unspecified configuration [[GH-3854](https://github.com/hashicorp/waypoint/issues/3854)]
+* plugin/ecs: Implement WatchTask plugin for AWS ECS task launcher. Store ECS on-demand runner logs in the job system. [[GH-3918](https://github.com/hashicorp/waypoint/issues/3918)]
+* plugin/docker: Add new `docker-ref` plugin for a build noop for referencing a Docker Image [[GH-3912](https://github.com/hashicorp/waypoint/issues/3912)]
+
+BUG FIXES:
+
+* cli/install: Set image pull policy configuration on Helm installation of Waypoint server and runner [[GH-3948](https://github.com/hashicorp/waypoint/issues/3948)]
+* cli: Fix panic when setting project datasource to local [[GH-3972](https://github.com/hashicorp/waypoint/issues/3972)]
+* core: Connected entrypoints for deleted projects now error out properly. [[GH-3949](https://github.com/hashicorp/waypoint/issues/3949)]
+* core: Fix out of order job ids for `waypoint pipeline run` job stream CLI. [[GH-3946](https://github.com/hashicorp/waypoint/issues/3946)]
+* plugin/nomad-jobspec: Fix deployment of periodic and system Nomad jobs. [[GH-3963](https://github.com/hashicorp/waypoint/issues/3963)]
+* ui: Fix crash when encountering resources without IDs [[GH-3929](https://github.com/hashicorp/waypoint/issues/3929)]
+
+## 0.10.1 (September 22, 2022)
+
+IMPROVEMENTS:
+
+* core: Update TaskCancel to also cancel WatchTask job, if it was launched. [[GH-3893](https://github.com/hashicorp/waypoint/issues/3893)]
+
+BUG FIXES:
+
+* plugin/nomad-jobspec: Update Nomad jobspec status check to not report partial
+health for deployments with canaries [[GH-3883](https://github.com/hashicorp/waypoint/issues/3883)]
+* plugin/nomad: Update Nomad task launcher plugin to respect namespace and region
+configs in runner profile [[GH-3883](https://github.com/hashicorp/waypoint/issues/3883)]
+* plugin: Fix panic in non-ECS plugins when destroying resources [[GH-3896](https://github.com/hashicorp/waypoint/issues/3896)]
+* runner-install/k8s: Use the service account created by helm in the runner profile, rather than using the default service account. [[GH-3894](https://github.com/hashicorp/waypoint/issues/3894)]
+* runner-install/kubernetes: Fix the static runner image used in the `waypoint runner install` command [[GH-3890](https://github.com/hashicorp/waypoint/issues/3890)]
+
+## 0.10.0 (September 13, 2022)
+
+FEATURES:
+
+* **core: Custom Pipelines** as a Tech Preview gives users the ability to define custom pipelines to run various Waypoint actions such as a build, deploy, release, up and more for deploying applications. Waypoint will monitor and log each pipeline run, associated jobs, and show the results of executing that pipeline. [[GH-3777](https://github.com/hashicorp/waypoint/issues/3777)]
+* **core: Project Destroy** Introduce a new CLI command `project destroy` to delete projects in Waypoint and destroy their associated resources [[GH-3626](https://github.com/hashicorp/waypoint/issues/3626)]
+* CLI: New waypoint.hcl interactive generator, accessed with `waypoint init` when no waypoint.hcl exists in the current project [[GH-3704](https://github.com/hashicorp/waypoint/issues/3704)]
+
+IMPROVEMENTS:
+
+* CLI: Nomad CSI volumes names can be specified during installation and upgrades for both Waypoint runners and Waypoint server installations [[GH-3546](https://github.com/hashicorp/waypoint/issues/3546)]
+* cli/runnerinstall: The runner profile created by `runner install` sets target labels
+instead of a target runner ID on the runner profile, if the user supplied label flags [[GH-3755](https://github.com/hashicorp/waypoint/issues/3755)]
+* cli: Add option to `waypoint logs` command to get a specific deployment's logs [[GH-3656](https://github.com/hashicorp/waypoint/issues/3656)]
+* cli: Fix incorrect description for `destroy -h` command. [[GH-3580](https://github.com/hashicorp/waypoint/issues/3580)]
+* cli: Implement `waypoint job get-stream` to allow users to attach to running job
+streams and receieve output, or get the output from an existing job stream that
+already finished. [[GH-3410](https://github.com/hashicorp/waypoint/issues/3410)]
+* cli: Internal-only labels on runners are hidden from CLI output for `waypoint runner
+list` and `waypoint runner inspect` [[GH-3746](https://github.com/hashicorp/waypoint/issues/3746)]
+* install/runner: Allow additional arguments for `waypoint runner agent` command
+to be supplied to `waypoint runner install` CLI [[GH-3746](https://github.com/hashicorp/waypoint/issues/3746)]
+* internal/runnerinstall: Fix order of error checking and make error message more specific [[GH-3772](https://github.com/hashicorp/waypoint/issues/3772)]
+* plugin/k8s: Add ephemeral-storage resource limits to on-demand runners through runner profiles. [[GH-3676](https://github.com/hashicorp/waypoint/issues/3676)]
+* plugin/nomad: Implement WatchTask plugin for Nomad task launcher. Store Nomad on-demand runner logs in the job system. [[GH-3797](https://github.com/hashicorp/waypoint/issues/3797)]
+* plugin/nomad: nomad-jobspec deployments will no longer utilize the
+nomad-jobspec-canary releaser by default. [[GH-3359](https://github.com/hashicorp/waypoint/issues/3359)]
+* serverinstall/ecs: Improve server upgrade process by stopping task and reducing
+target group drain time [[GH-3564](https://github.com/hashicorp/waypoint/issues/3564)]
+* ui: Fix header spacing on build/release detail pages [[GH-3614](https://github.com/hashicorp/waypoint/issues/3614)]
+* ui: Make it clearer that remote runners are required for GitOps [[GH-3615](https://github.com/hashicorp/waypoint/issues/3615)]
+* ui: Update alert copy to reflect change that we are no longer removing project definitively in 0.10.0 [[GH-3604](https://github.com/hashicorp/waypoint/issues/3604)]
+
+BUG FIXES:
+
+* cli/install/k8s: Fixes the k8s installer race condition with the bootstrap token [[GH-3744](https://github.com/hashicorp/waypoint/issues/3744)]
+* cli/runnerinstall: Fix output error message for missing arguments on Nomad runner installation [[GH-3761](https://github.com/hashicorp/waypoint/issues/3761)]
+* cli/runnerinstall: The runner profile created by `runner install` no longer sets
+the profile as the default, and appends the runner ID to the name of the profile
+for uniqueness [[GH-3755](https://github.com/hashicorp/waypoint/issues/3755)]
+* cli/serverinstall/nomad: Add service discovery provider configuration
+to server install for Nomad. [[GH-3500](https://github.com/hashicorp/waypoint/issues/3500)]
+* cli: Do not set runner profile defaultness to false if default flag not specified. [[GH-3702](https://github.com/hashicorp/waypoint/issues/3702)]
+* cli: Fix issue where the CLI would exit with no error or action taken if a local
+  waypoint.hcl file was invalid [[GH-3657](https://github.com/hashicorp/waypoint/issues/3657)]
+* cli: Fix order of CLI outputs during install [[GH-3729](https://github.com/hashicorp/waypoint/issues/3729)]
+* cli: Only show runner profile default deletion hint if more than 0 default
+profiles are detected on upgrades. [[GH-3688](https://github.com/hashicorp/waypoint/issues/3688)]
+* cli: Set plugin configuration on runner profile created during `runner install` [[GH-3699](https://github.com/hashicorp/waypoint/issues/3699)]
+* cli: Set the subnet and security group ID configs for the ECS task launcher plugin
+during an ECS runner install [[GH-3701](https://github.com/hashicorp/waypoint/issues/3701)]
+* cli: `deployment destroy` will now attempt to destroy any known resources for failed
+deployments. Previously, `destroy` would skip unsuccessful deployments. [[GH-3602](https://github.com/hashicorp/waypoint/issues/3602)]
+* cli: `runner profile delete` deletes by name rather than the user-invisible ID. [[GH-3803](https://github.com/hashicorp/waypoint/issues/3803)]
+* cli: `runner profile set` does not create entries with duplicate names. [[GH-3803](https://github.com/hashicorp/waypoint/issues/3803)]
+* core/runner: Default to odr oci image url for runner profiles created via runner install [[GH-3800](https://github.com/hashicorp/waypoint/issues/3800)]
+* core/runner: Server no longer panics when a runner stopped after it is forgotten. [[GH-3756](https://github.com/hashicorp/waypoint/issues/3756)]
+* core: prune releases which released deployments that are being pruned during
+a release [[GH-3730](https://github.com/hashicorp/waypoint/issues/3730)]
+* internal/pkg/gitdirty: Fix an issue detecting dirty local source code when using git@ remotes. [[GH-3636](https://github.com/hashicorp/waypoint/issues/3636)]
+* plugin/nomad-jobspec-canary: Retrieve the status of the correct Nomad job for the
+job resource [[GH-3766](https://github.com/hashicorp/waypoint/issues/3766)]
+* ui: Add label to “follow logs” button [[GH-3732](https://github.com/hashicorp/waypoint/issues/3732)]
+* ui: Make UI more resilient to invalid state JSON [[GH-3786](https://github.com/hashicorp/waypoint/issues/3786)]
+* upgrade: Nomad server upgrade upgrade now detects runners with the name
+`waypoint-runner` or `waypoint-static-runner` [[GH-3804](https://github.com/hashicorp/waypoint/issues/3804)]
+* upgrade: Update ECS server upgrade to respect -ecs-server-image flag when the
+existing server image is hashicorp/waypoint:latest [[GH-3820](https://github.com/hashicorp/waypoint/issues/3820)]
+
+## 0.9.1 (July 28, 2022)
+
+IMPROVEMENTS:
+
+* core: Adds string `replace` function for HCL configs [[GH-3522](https://github.com/hashicorp/waypoint/issues/3522)]
+* plugin/nomad: Convert Nomad job for ODR to batch job [[GH-3468](https://github.com/hashicorp/waypoint/issues/3468)]
+
+BUG FIXES:
+
+* internal: Fix deprecation warning being fatal [[GH-3605](https://github.com/hashicorp/waypoint/issues/3605)]
+* plugin/tfc: Fix HCL field, `refresh_interval` [[GH-3524](https://github.com/hashicorp/waypoint/issues/3524)]
+
+## 0.9.0 (July 05, 2022)
+
+FEATURES:
+
+* **Waypoint Task Tracking**: Waypoint now tracks the lifecycle of on-demand
+runner tasks through a new internal core concept `Task`. As ODR jobs run, Task
+will keep track of what part the jobs are at for better debugging and on-demand
+runner insight. [[GH-3203](https://github.com/hashicorp/waypoint/issues/3203)]
+* cli: **New `runner install` and `runner uninstall` commands** to install/uninstall Waypoint runners to a specified platform [[GH-3335](https://github.com/hashicorp/waypoint/issues/3335)]
+* cli: **New `runner profile delete` command** to delete a Waypoint runner profile [[GH-3474](https://github.com/hashicorp/waypoint/issues/3474)]
+* cli: **Refactor k8s server install to use Helm** [[GH-3335](https://github.com/hashicorp/waypoint/issues/3335)]
+* core: **Add ability to have cli and runners use OAuth2 to get an auth token** [[GH-3298](https://github.com/hashicorp/waypoint/issues/3298)]
+* plugin/aws-ecr-pull: **Introduces an `aws-ecr-pull` builder plugin**
+that enables using AWS ECR images that are built outside of Waypoint. [[GH-3396](https://github.com/hashicorp/waypoint/issues/3396)]
+* plugin/lambda-function-url: **Adds a new plugin and `releaser` component.** This leverages Lambda URLs. [[GH-3187](https://github.com/hashicorp/waypoint/issues/3187)]
+
+IMPROVEMENTS:
+
+* cli: Show list of existing default runner profiles on post-upgrade to warn user
+that only one runner profile should be default. [[GH-3497](https://github.com/hashicorp/waypoint/issues/3497)]
+* cli: Add interactive input for server upgrade, server uninstall, and destroy commands [[GH-3238](https://github.com/hashicorp/waypoint/issues/3238)]
+* cli: Remove unused flag `runner-profile` in `waypoint project apply` [[GH-3318](https://github.com/hashicorp/waypoint/issues/3318)]
+* core/api: include commit message in datasource/git response [[GH-3457](https://github.com/hashicorp/waypoint/issues/3457)]
+* core: on-demand runner logs are now captured from the underlying platform
+and stored in the job system. [[GH-3306](https://github.com/hashicorp/waypoint/issues/3306)]
+* core: show helpful errors when using invalid runner profile plugin config [[GH-3465](https://github.com/hashicorp/waypoint/issues/3465)]
+* plugin/nomad: Support Nomad service discovery in Nomad platform plugin [[GH-3461](https://github.com/hashicorp/waypoint/issues/3461)]
+* runner: runners will now accept and execute multiple jobs concurrently
+if multiple jobs are available. On-demand runners continue to execute exactly
+one job since they are purpose launched for single job execution. [[GH-3300](https://github.com/hashicorp/waypoint/issues/3300)]
+* server: Introduce basic server-side metric collections around operations [[GH-3440](https://github.com/hashicorp/waypoint/issues/3440)]
+* serverinstall/k8s: By default, do not set a mem or cpu limit or request for
+the default runner profile installed. [[GH-3475](https://github.com/hashicorp/waypoint/issues/3475)]
+* ui: Updated UI of breadcrumbs and UX to include current page [[GH-3166](https://github.com/hashicorp/waypoint/issues/3166)]
+* upgrade: Warn user if default k8s runner profile has incorrect plugin configs [[GH-3503](https://github.com/hashicorp/waypoint/issues/3503)]
+
+DEPRECATIONS:
+
+* config: More than one app stanza within a waypoint.hcl file is deprecated, and will be removed in 0.10. Please see https://discuss.hashicorp.com/t/deprecating-projects-or-how-i-learned-to-love-apps/40888 for more information.
+
+  Since the initial version of Waypoint, the product has supported the ability to configure multiple apps within a single waypoint.hcl file. This functionality is deprecated and will be removed in the next release. The vast majority of users are not using this functionality and it served mostly as a source of confusion for users. For users who are using a monorepo pattern, we plan to add better workflows for you.
+
+  With a waypoint.hcl now focused on the configuration of a single application, the concept of a project within the Waypoint data model will be removed, moving applications to the top level. This is already how users talk about using Waypoint and we are confident that it will improve the overall understanding of Waypoint as well.
+
+  If you have questions about this change in functionality, we invite you to discuss with us at https://discuss.hashicorp.com/t/deprecating-projects-or-how-i-learned-to-love-apps/40888 or https://github.com/hashicorp/waypoint/issues.
+  
+  [[GH-3466](https://github.com/hashicorp/waypoint/pull/3466)]
+
+BUG FIXES:
+
+* cli: fix git dirty check that was broken for some versions of the git cli [[GH-3432](https://github.com/hashicorp/waypoint/issues/3432)]
+* cli: fix panic when running status report on app with zero prior deployments [[GH-3425](https://github.com/hashicorp/waypoint/issues/3425)]
+* core: Fix a rare panic when generating an invite token. [[GH-3505](https://github.com/hashicorp/waypoint/issues/3505)]
+* plugin/docker: Ensure that the docker task launcher does not require a resources
+block to be set when attempting to load a task config to launch a task. [[GH-3486](https://github.com/hashicorp/waypoint/issues/3486)]
+* plugin/docker: fix issue with remote operations for `docker-pull` builder [[GH-3398](https://github.com/hashicorp/waypoint/issues/3398)]
+* plugin/k8s: Properly parse kubernetes task launcher config on plugin invoke. [[GH-3475](https://github.com/hashicorp/waypoint/issues/3475)]
+* upgrade: Update existing runner profile during server upgrade & change naming convention of initial runner profile [[GH-3490](https://github.com/hashicorp/waypoint/issues/3490)]
+
+
+## 0.8.2 (May 19, 2022)
+
+IMPROVEMENTS:
+
+* cli: Output message if no runners are found for 'runner list' [[GH-3266](https://github.com/hashicorp/waypoint/issues/3266)]
+* core: git cloning now supports recursively cloning submodules [[GH-3351](https://github.com/hashicorp/waypoint/issues/3351)]
+* plugin/aws-lambda: Add platform config validation. [[GH-3193](https://github.com/hashicorp/waypoint/issues/3193)]
+* plugin/aws-lambda: add support for lambda storage size [[GH-3213](https://github.com/hashicorp/waypoint/issues/3213)]
+* plugin/k8s: Add CPU and memory resource limits to on-demand runners through runner profiles and at install time. These resource limits follow the same format that kubernetes expects within `spec.containers[].resources`. [[GH-3307](https://github.com/hashicorp/waypoint/issues/3307)]
+* plugin/lambda: Add `static_environment` to deploy plugin [[GH-3282](https://github.com/hashicorp/waypoint/issues/3282)]
+* plugin/nomad-jobspec: Add configuration option to parse jobspec as HCL1 instead of HCL2 [[GH-3287](https://github.com/hashicorp/waypoint/issues/3287)]
+* plugin/nomad: Support Consul & Vault tokens for job submission [[GH-3222](https://github.com/hashicorp/waypoint/issues/3222)]
+
+BUG FIXES:
+
+* builtin/k8s: Ensure pod.container.static_environment is applied [[GH-3197](https://github.com/hashicorp/waypoint/issues/3197)]
+* cli: Fix missing bootstrap hint with server run command [[GH-3196](https://github.com/hashicorp/waypoint/issues/3196)]
+* cli: Prevent panic when releasing unsuccessful deployments [[GH-3207](https://github.com/hashicorp/waypoint/issues/3207)]
+* cli: Show better error message when there are no Waypoint contexts when attempting
+to open the UI [[GH-3262](https://github.com/hashicorp/waypoint/issues/3262)]
+* install/nomad: Add support for CSI params & secrets to Nomad install [[GH-3279](https://github.com/hashicorp/waypoint/issues/3279)]
+* install/nomad: Fix DB directory for Nomad install [[GH-3261](https://github.com/hashicorp/waypoint/issues/3261)]
+* internal/cli: Fix `waypoint exec` workspace selection [[GH-3226](https://github.com/hashicorp/waypoint/issues/3226)]
+* plugin/docker: support remote operations for docker-pull plugin [[GH-3253](https://github.com/hashicorp/waypoint/issues/3253)]
+* plugin/k8s: Ensure `container=docker` environment variable is set for Kaniko
+to properly detect running inside a container, which prevented on-demand
+runners from working on Kubernetes 1.23. [[GH-3322](https://github.com/hashicorp/waypoint/issues/3322)]
+* server: fix issue cleaning up tasks in Kubernetes that completed successfully [[GH-3299](https://github.com/hashicorp/waypoint/issues/3299)]
+
+## 0.8.1 (April 08, 2022)
+
+BUG FIXES:
+
+* server: Fix runner database by setting proper runner bucket for initialization. Sever upgrades to 0.8.0 would previously fail before this fix. [[GH-3200](https://github.com/hashicorp/waypoint/issues/3200)]
+
+## 0.8.0 (April 07, 2022)
+
+FEATURES:
+
+* **Targetable Runners with Labels**: Waypoint now supports runner profiles that target specific on-demand runners by labels.
+Projects and/or Apps can be configured to use a specific runner profile, identified by name.
+The runner profile will target all operations to a specific on-demand runner by ID, or labels on the runner. [[GH-3145](https://github.com/hashicorp/waypoint/issues/3145)]
+* **cli:** Introduce a new CLI command for job management and inspection
+`waypoint job`. [[GH-3067](https://github.com/hashicorp/waypoint/issues/3067)]
+* **core, cli:** Support setting variables to `sensitive` and obfuscate those values in outputs [[GH-3138](https://github.com/hashicorp/waypoint/issues/3138)]
+* **plugin/nomad:** Nomad jobspec canary promotion releaser [[GH-2938](https://github.com/hashicorp/waypoint/issues/2938)]
+
+IMPROVEMENTS:
+
+* cli: Add `waypoint runner inspect` command [[GH-3004](https://github.com/hashicorp/waypoint/issues/3004)]
+* cli: Add a way for `waypoint context create` to set the Waypoint server platform [[GH-3055](https://github.com/hashicorp/waypoint/issues/3055)]
+* cli: Display count of instance connections in deployment status reports [[GH-3043](https://github.com/hashicorp/waypoint/issues/3043)]
+* cli: Introduce a `-dangerously-force` flag to attempt to force cancel a job [[GH-3102](https://github.com/hashicorp/waypoint/issues/3102)]
+* cli: Print operation sequence ids and pushed artifact id [[GH-3081](https://github.com/hashicorp/waypoint/issues/3081)]
+* cli: `runner list` shows runner labels [[GH-3133](https://github.com/hashicorp/waypoint/issues/3133)]
+* cli: `runner profile set` deprecates the `-env-vars` flag in favor of the `-env-var` flag instead. [[GH-3136](https://github.com/hashicorp/waypoint/issues/3136)]
+* cli: `runner profile` command set now supports target runner labels [[GH-3145](https://github.com/hashicorp/waypoint/issues/3145)]
+* core: runners automatically reconnect on startup if the server is unavailable
+or becomes unavailable during the startup process [[GH-3087](https://github.com/hashicorp/waypoint/issues/3087)]
+* core: runners can have labels, which are used for targeting and metadata [[GH-2954](https://github.com/hashicorp/waypoint/issues/2954)]
+* core: runners can tolerate a server outage during job execution and will
+wait for the server to come back online [[GH-3119](https://github.com/hashicorp/waypoint/issues/3119)]
+* plugin/aws-ecr: Output `architecture` from Docker image input [[GH-3046](https://github.com/hashicorp/waypoint/issues/3046)]
+* plugin/ecs: Add `cpu_architecture` aws-ecs parameter
+to support deploying Docker images built by the Apple M1 chip on ECS [[GH-3068](https://github.com/hashicorp/waypoint/issues/3068)]
+* plugin/aws-lambda: Default lambda architecture to Docker/ECR image architecture [[GH-3046](https://github.com/hashicorp/waypoint/issues/3046)]
+* plugin/docker: Output `architecture` from Docker builder [[GH-3046](https://github.com/hashicorp/waypoint/issues/3046)]
+* plugin/k8s: don't error if previous deployment is not found during cleanup [[GH-3070](https://github.com/hashicorp/waypoint/issues/3070)]
+* plugin/nomad: Resource manager for Nomad jobspec [[GH-2938](https://github.com/hashicorp/waypoint/issues/2938)]
+
+BUG FIXES:
+
+* ceb: Fix connecting to servers with TLS verification [[GH-3167](https://github.com/hashicorp/waypoint/issues/3167)]
+* cli: Fix panic in `waypoint plugin` CLI [[GH-3095](https://github.com/hashicorp/waypoint/issues/3095)]
+* cli: Fix panic when attempting to reinstall autocomplete [[GH-2986](https://github.com/hashicorp/waypoint/issues/2986)]
+* cli: Fix the -set-default flag on `waypoint context create` [[GH-3044](https://github.com/hashicorp/waypoint/issues/3044)]
+* core: Ensure remote runners have dynamic config sources overrides for
+evaluating defaults for job variables. [[GH-3171](https://github.com/hashicorp/waypoint/issues/3171)]
+* core: Fix panic when running `waypoint build` remotely outside of project directory. [[GH-3165](https://github.com/hashicorp/waypoint/issues/3165)]
+* core: Fix panic where on-demand runner config was nil before starting task [[GH-3054](https://github.com/hashicorp/waypoint/issues/3054)]
+* plugin/alb: Handle DuplicateListener errors from aws-alb releaser [[GH-3035](https://github.com/hashicorp/waypoint/issues/3035)]
+* plugin/aws-alb: Use Route53 zone id when destroying a resource record [[GH-3076](https://github.com/hashicorp/waypoint/issues/3076)]
+* plugin/docker: Add Docker auth support for builder and platform, and add config options for
+docker-pull auth and registry auth [[GH-2895](https://github.com/hashicorp/waypoint/issues/2895)]
+* plugin/k8s: clean up pending pods from cancelled jobs [[GH-3143](https://github.com/hashicorp/waypoint/issues/3143)]
+* plugin/k8s: fix issue when destroying multiple deployments [[GH-3111](https://github.com/hashicorp/waypoint/issues/3111)]
+* plugin/nomad: Fix Nomad job namespace when using ODRs [[GH-2896](https://github.com/hashicorp/waypoint/issues/2896)]
+* server: Fix project poll job singleton id to only include application on project
+poll jobs if exist. Otherwise, only include the workspace and project. [[GH-3158](https://github.com/hashicorp/waypoint/issues/3158)]
+* ui: Fix missing links to resources [[GH-3172](https://github.com/hashicorp/waypoint/issues/3172)]
+* ui: fix missing link on release detail page [[GH-3142](https://github.com/hashicorp/waypoint/issues/3142)]
+
+## 0.7.2 (February 24, 2022)
+
+FEATURES:
+
+* **Targetable Runners:** Allow apps and projects to target specific runner profiles.
+Allow runner profiles to target specific remote runners. [[GH-2862](https://github.com/hashicorp/waypoint/issues/2862)]
+* **Introduce executing Trigger URL configurations via HTTP**. Users can
+start a trigger via HTTP and stream the job event stream output directly over
+http. [[GH-2970](https://github.com/hashicorp/waypoint/issues/2970)]
+
+IMPROVEMENTS:
+
+* plugin/docker: Add parameter to disable the build cache [[GH-2953](https://github.com/hashicorp/waypoint/issues/2953)]
+
+BUG FIXES:
+
+* cli: Fix panic on nil value for project [[GH-2968](https://github.com/hashicorp/waypoint/issues/2968)]
+* cli: Replace panic with message when attempting to `config get -app` without a `-project` flag while outside a project directory [[GH-3039](https://github.com/hashicorp/waypoint/issues/3039)]
+* cli: requires -app flag if `config set -scope=app` is set [[GH-3040](https://github.com/hashicorp/waypoint/issues/3040)]
+* server: Cache Horizon hostname URL lookup when listing deployments in the
+`UI_ListDeployments bundle`. Now we look up the deployment URL once, and craft
+the deployment URLs based on the original hostname lookup. [[GH-2950](https://github.com/hashicorp/waypoint/issues/2950)]
+* ui: fixed issue with focus jumping back to the skip link on automatic refresh [[GH-3019](https://github.com/hashicorp/waypoint/issues/3019)]
+
 ## 0.7.1 (January 25, 2022)
 
 IMPROVEMENTS:

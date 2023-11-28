@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import { CompleteOIDCAuthRequest, Ref } from 'waypoint-pb';
 
 import ApiService from 'waypoint/services/api';

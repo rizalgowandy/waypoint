@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package nomad
 
 import (
@@ -7,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang/protobuf/ptypes"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/api"
 	"github.com/hashicorp/waypoint-plugin-sdk/component"
@@ -17,6 +19,7 @@ import (
 	"github.com/hashicorp/waypoint/builtin/docker"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	sdk "github.com/hashicorp/waypoint-plugin-sdk/proto/gen"
 )
@@ -81,7 +84,7 @@ func (p *Platform) StatusFunc() interface{} {
 func (p *Platform) resourceManager(log hclog.Logger) *resource.Manager {
 	return resource.NewManager(
 		resource.WithLogger(log.Named("resource_manager")),
-		resource.WithValueProvider(p.getNomadClient),
+		resource.WithValueProvider(getNomadClient),
 		resource.WithResource(resource.NewResource(
 			resource.WithName(rmResourceJobName),
 			resource.WithState(&Resource_Job{}),
@@ -93,7 +96,7 @@ func (p *Platform) resourceManager(log hclog.Logger) *resource.Manager {
 
 // getNomadClient is a value provider for our resource manager and provides
 // the client connection used by resources to interact with Nomad.
-func (p *Platform) getNomadClient() (*api.Client, error) {
+func getNomadClient() (*api.Client, error) {
 	// Get our client
 	client, err := api.NewClient(api.DefaultConfig())
 	if err != nil {
@@ -139,12 +142,12 @@ func (p *Platform) resourceJobCreate(
 			},
 		}
 
-		// Register app to Consul. If Nomad is not using Consul, this service
-		// is not used when job is registered
+		// Register service with app deployment
 		tg.Services = []*api.Service{
 			{
 				Name:      result.Name,
 				PortLabel: "waypoint", // matches dynamic port label in NetworkResource
+				Provider:  p.config.ServiceProvider,
 			},
 		}
 
@@ -210,6 +213,20 @@ func (p *Platform) resourceJobCreate(
 
 	job.TaskGroups[0].Tasks[0].Config = config
 	job.TaskGroups[0].Tasks[0].Env = env
+
+	// Get Consul ACL token from environment
+	c, err := ConsulAuth()
+	if err != nil {
+		return err
+	}
+	job.ConsulToken = &c
+
+	// Get Vault token from environment
+	v, err := VaultAuth()
+	if err != nil {
+		return err
+	}
+	job.VaultToken = &v
 
 	// Register job
 	st.Update("Registering job...")
@@ -368,7 +385,7 @@ func (p *Platform) Status(
 		result.HealthMessage = *job.StatusDescription
 	}
 
-	result.GeneratedTime = ptypes.TimestampNow()
+	result.GeneratedTime = timestamppb.Now()
 
 	s.Update("Finished building report for Nomad platform")
 	s.Done()
@@ -424,6 +441,9 @@ type Config struct {
 	// or default to another port.
 	ServicePort uint `hcl:"service_port,optional"`
 
+	// Specifies the service registration provider to use for service registrations
+	ServiceProvider string `hcl:"service_provider,optional"`
+
 	// Environment variables that are meant to configure the application in a static
 	// way. This might be control an image that has multiple modes of operation,
 	// selected via environment variable. Most configuration should use the waypoint
@@ -449,7 +469,9 @@ func (p *Platform) Documentation() (*docs.Documentation, error) {
 		return nil, err
 	}
 
-	doc.Description("Deploy to a nomad cluster as a service using docker")
+	doc.Description("Deploy to a nomad cluster as a service using Docker")
+	doc.Input("docker.Image")
+	doc.Output("nomad.Deployment")
 
 	doc.Example(
 		`
@@ -518,8 +540,28 @@ deploy {
 	)
 
 	doc.SetField(
+		"consul_token",
+		"The Consul ACL token used to register services with the Nomad job.",
+		docs.Summary("Uses the runner config environment variable CONSUL_HTTP_TOKEN."),
+		docs.EnvVar("CONSUL_HTTP_TOKEN"),
+	)
+
+	doc.SetField(
+		"vault_token",
+		"The Vault token used to deploy the Nomad job with a token having specific Vault policies attached.",
+		docs.Summary("Uses the runner config environment variable VAULT_TOKEN."),
+		docs.EnvVar("VAULT_TOKEN"),
+	)
+
+	doc.SetField(
 		"static_environment",
 		"Environment variables to add to the job.",
+	)
+
+	doc.SetField(
+		"service_provider",
+		"Specifies the service registration provider to use for registering a service for the job",
+		docs.Default("consul"),
 	)
 
 	doc.SetField(

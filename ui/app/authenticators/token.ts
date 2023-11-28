@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import { reject, resolve } from 'rsvp';
 
 import BaseAuthenticator from 'ember-simple-auth/authenticators/base';

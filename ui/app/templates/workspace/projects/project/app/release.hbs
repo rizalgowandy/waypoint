@@ -1,13 +1,22 @@
+{{!
+  Copyright (c) HashiCorp, Inc.
+  SPDX-License-Identifier: BUSL-1.1
+}}
+
 {{page-title (concat "Release" " v" @model.sequence)}}
 
 {{#if (not-eq this.target.currentRouteName "workspace.projects.project.app.release.resource")}}
   <PanelHeader @artifact="release" @sequence={{@model.sequence}}>
     <:actions>
-      {{#if @isLatest}}
-        <button class="button button--primary" type="button">
-          <span>{{@model.release.url}}</span>
+      {{#if this.shouldShowURL}}
+        <ExternalLink
+          href={{enforce-protocol @model.url}}
+          class="button button--primary button--external-link"
+          data-test-release-url
+        >
+          <span>{{lowercase @model.url}}</span>
           <FlightIcon @name="external-link" class="icon" />
-        </button>
+        </ExternalLink>
       {{/if}}
     </:actions>
   </PanelHeader>

@@ -1,7 +1,12 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
 	"context"
+	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/posener/complete"
@@ -16,7 +21,9 @@ import (
 type DeploymentCreateCommand struct {
 	*baseCommand
 
-	flagRelease bool
+	flagRelease     bool
+	flagPrune       bool
+	flagPruneRetain int
 }
 
 func (c *DeploymentCreateCommand) Run(args []string) int {
@@ -70,26 +77,16 @@ func (c *DeploymentCreateCommand) Run(args []string) int {
 			hostname = hostnamesResp.Hostnames[0]
 		}
 
-		// Status Report
-		app.UI.Output("")
-		_, err = app.StatusReport(ctx, &pb.Job_StatusReportOp{
-			Target: &pb.Job_StatusReportOp_Deployment{
-				Deployment: deployment,
-			},
-		})
-		if err != nil {
-			app.UI.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
-			return ErrSentinel
-		}
-
 		// Release if we're releasing
 		var releaseUrl string
 		if c.flagRelease {
 			// We're releasing, do that too.
 			app.UI.Output("Releasing...", terminal.WithHeaderStyle())
 			releaseResult, err := app.Release(ctx, &pb.Job_ReleaseOp{
-				Deployment: deployment,
-				Prune:      true,
+				Deployment:          deployment,
+				Prune:               c.flagPrune,
+				PruneRetain:         int32(c.flagPruneRetain),
+				PruneRetainOverride: c.flagPruneRetain >= 0,
 			})
 			if err != nil {
 				app.UI.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
@@ -118,11 +115,43 @@ func (c *DeploymentCreateCommand) Run(args []string) int {
 			}
 		}
 
+		// Show input variable values used in build
+		// We do this here so that if the list is long, it doesn't
+		// push the deploy/release URLs off the top of the terminal.
+		// We also use the deploy result and not the release result,
+		// because the data will be the same and this is the deployment command.
+		app.UI.Output("Variables used:", terminal.WithHeaderStyle())
+		resp, err := c.project.Client().GetJob(ctx, &pb.GetJobRequest{
+			JobId: deployment.JobId,
+		})
+		if err != nil {
+			app.UI.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
+			return ErrSentinel
+		}
+		tbl := fmtVariablesOutput(resp.VariableFinalValues)
+		c.ui.Table(tbl)
+
 		// inplace is true if this was an in-place deploy. We detect this
 		// if we have a generation that uses a non-matching sequence number
 		inplace := result.Deployment.Generation != nil &&
 			result.Deployment.Generation.Id != "" &&
 			result.Deployment.Generation.InitialSequence != result.Deployment.Sequence
+
+		// Ensure deploy and release Urls have a scheme
+		du, err := url.Parse(deployUrl)
+		if err != nil && du.Scheme != "" {
+			return err
+		}
+		if du.Scheme == "" && deployUrl != "" {
+			deployUrl = fmt.Sprintf("https://%s", deployUrl)
+		}
+		ru, err := url.Parse(releaseUrl)
+		if err != nil && ru.Scheme != "" {
+			return err
+		}
+		if ru.Scheme == "" && releaseUrl != "" {
+			releaseUrl = fmt.Sprintf("https://%s", releaseUrl)
+		}
 
 		// Output
 		app.UI.Output("")
@@ -131,17 +160,17 @@ func (c *DeploymentCreateCommand) Run(args []string) int {
 			printInplaceInfo(inplace, app)
 			app.UI.Output("   Release URL: %s", releaseUrl, terminal.WithSuccessStyle())
 			if deployUrl != "" {
-				app.UI.Output("Deployment URL: https://%s", deployUrl, terminal.WithSuccessStyle())
+				app.UI.Output("Deployment URL: %s", deployUrl, terminal.WithSuccessStyle())
 			} else {
 				app.UI.Output(strings.TrimSpace(deployNoURL)+"\n", terminal.WithSuccessStyle())
 			}
 		case hostname != nil:
 			printInplaceInfo(inplace, app)
-			app.UI.Output("           URL: https://%s", hostname.Fqdn, terminal.WithSuccessStyle())
-			app.UI.Output("Deployment URL: https://%s", deployUrl, terminal.WithSuccessStyle())
+			app.UI.Output("           URL: %s", hostname.Fqdn, terminal.WithSuccessStyle())
+			app.UI.Output("Deployment URL: %s", deployUrl, terminal.WithSuccessStyle())
 		case deployUrl != "":
 			printInplaceInfo(inplace, app)
-			app.UI.Output("Deployment URL: https://%s", deployUrl, terminal.WithSuccessStyle())
+			app.UI.Output("Deployment URL: %s", deployUrl, terminal.WithSuccessStyle())
 		default:
 			app.UI.Output(strings.TrimSpace(deployNoURL)+"\n", terminal.WithSuccessStyle())
 		}
@@ -172,6 +201,23 @@ func (c *DeploymentCreateCommand) Flags() *flag.Sets {
 			Usage:   "Release this deployment immediately.",
 			Default: true,
 		})
+
+		f.BoolVar(&flag.BoolVar{
+			Name:    "prune",
+			Target:  &c.flagPrune,
+			Usage:   "Prune old unreleased deployments.",
+			Default: true,
+		})
+
+		f.IntVar(&flag.IntVar{
+			Name:   "prune-retain",
+			Target: &c.flagPruneRetain,
+			Usage: "The number of unreleased deployments to keep. " +
+				"If this isn't set or is set to any negative number, " +
+				"then this will default to 1 on the server. If you want to prune " +
+				"all unreleased deployments, set this to 0.",
+			Default: -1,
+		})
 	})
 }
 
@@ -195,6 +241,9 @@ Alias: waypoint deploy
   Deploy an application. This will deploy the most recent successful
   pushed artifact by default. You can view a list of recent artifacts
   using the "artifact list" command.
+
+  By default, "waypoint deploy" automatically performs a release. This behavior
+  can be disabled by using the "-release=false" flag.
 
 ` + c.Flags().Help())
 }

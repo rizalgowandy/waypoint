@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 .card {
   // all instances of cards (including the list of projects/apps)
   padding: scale.$sm--1 scale.$base;
@@ -96,7 +101,7 @@
   display: flex;
   align-items: center;
 
-  .icon-tile {
+  .hds-icon-tile {
     margin-right: scale.$base;
   }
 
@@ -108,4 +113,8 @@
 
 .card-header {
   font-size: scale.$sm-1;
+}
+
+.card-alert {
+  margin: scale.$sm--3 0 scale.$lg--1 0;
 }

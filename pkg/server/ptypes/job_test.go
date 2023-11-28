@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ptypes
 
 import (
@@ -24,6 +27,12 @@ func TestValidateJob(t *testing.T) {
 			"id is set",
 			func(j *pb.Job) { j.Id = "nope" },
 			"id: must be empty",
+		},
+
+		{
+			"workspace is set",
+			func(j *pb.Job) { j.Workspace = nil },
+			"workspace: cannot be blank",
 		},
 
 		{

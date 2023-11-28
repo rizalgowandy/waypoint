@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 // Package ssm contains components for syncing configuration with AWS SSM.
 package ssm
 

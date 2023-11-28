@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package config
 
 import (
@@ -110,6 +113,7 @@ func (h *Hook) ContinueOnFailure() bool {
 	return h.OnFailure == "continue"
 }
 
+func (b *Step) hclContext() *hcl.EvalContext     { return b.ctx }
 func (b *Build) hclContext() *hcl.EvalContext    { return b.ctx }
 func (b *Registry) hclContext() *hcl.EvalContext { return b.ctx }
 func (b *Deploy) hclContext() *hcl.EvalContext   { return b.ctx }

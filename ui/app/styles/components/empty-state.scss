@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -36,5 +41,11 @@
       background: rgb(var(--badge));
       border-radius: 2px;
     }
+  }
+
+  .row-align {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
   }
 }

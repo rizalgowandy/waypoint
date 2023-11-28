@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ecs
 
 import "github.com/hashicorp/waypoint-plugin-sdk/component"

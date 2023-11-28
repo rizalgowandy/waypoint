@@ -20,77 +20,84 @@ deploy {
 
 ### Required Parameters
 
-These parameters are used in the [`use` stanza](/docs/waypoint-hcl/use) for this plugin.
+These parameters are used in the [`use` stanza](/waypoint/docs/waypoint-hcl/use) for this plugin.
 
-#### alb (category)
+#### health_check (category)
 
-Provides additional configuration for using an ALB with ECS.
+Health check settings for the app.
 
-##### alb.certificate
+These settings configure a health check for the application target group.
 
-The ARN of an AWS Certificate Manager cert to associate with the ALB.
+- **Optional**
+
+##### health_check.grpc_code
 
 - Type: **string**
 - **Optional**
 
-##### alb.domain_name
+##### health_check.healthy_threshold_count
 
-Fully qualified domain name to set for the ALB.
-
-Set along with zone_id to have DNS automatically setup for the ALB. this value should include the full hostname and domain name, for instance app.example.com.
-
-- Type: **string**
-- **Optional**
-
-##### alb.ingress_port
-
-Internet-facing traffic port. Defaults to 80 if 'certificate' is unset, 443 if set.
-
-Used to set the ALB listener port, and the ALB security group ingress port.
+The number of consecutive successful health checks required toconsider a target healthy.
 
 - Type: **int64**
 - **Optional**
+- Default: 5
 
-##### alb.internal
-
-Whether or not the created ALB should be internal.
-
-Used when listener_arn is not set. If set, the created ALB will have a scheme of `internal`, otherwise by default it has a scheme of `internet-facing`.
-
-- Type: **bool**
-- **Optional**
-
-##### alb.listener_arn
-
-The ARN on an existing ALB to configure.
-
-When this is set, no ALB or Listener is created. Instead the application is configured by manipulating this existing Listener. This allows users to configure their ALB outside waypoint but still have waypoint hook the application to that ALB.
+##### health_check.http_code
 
 - Type: **string**
 - **Optional**
 
-##### alb.subnets
+##### health_check.interval
 
-The VPC subnets to use for the ALB.
+The amount of time, in seconds, between health checks.
 
-- Type: **list of string**
+- Type: **int64**
 - **Optional**
-- Default: public subnets in the default VPC
+- Default: 30
 
-##### alb.zone_id
+##### health_check.matcher
 
-Route53 ZoneID to create a DNS record into.
+The range of HTTP codes to use when checking for a successful response fromthe target.
 
-Set along with alb.domain_name to have DNS automatically setup for the ALB.
+##### health_check.path
+
+The destination of the ping path for the target health check.
 
 - Type: **string**
 - **Optional**
+
+##### health_check.protocol
+
+The protocol for the health check to use.
+
+- Type: **string**
+- **Optional**
+- Default: HTTP
+
+##### health_check.timeout
+
+The amount of time, in seconds, for which no target response means a failure. Must be lower than the interval.
+
+- Type: **int64**
+- **Optional**
+- Default: 5
+
+##### health_check.unhealthy_threshold_count
+
+The number of consecutive failed health checks required to consider a target unhealthy.
+
+- Type: **int64**
+- **Optional**
+- Default: 2
 
 #### logging (category)
 
 Provides additional configuration for logging flags for ECS.
 
 Part of the ecs task definition. These configuration flags help control how the awslogs log driver is configured.
+
+- **Optional**
 
 ##### logging.create_group
 
@@ -153,53 +160,151 @@ The AWS region for the ECS cluster.
 
 - Type: **string**
 
-#### sidecar
+#### sidecar (category)
 
 Additional container to run as a sidecar.
 
 This runs additional containers in addition to the main container that comes from the build phase.
 
-- Type: **list of ecs.ContainerConfig**
-
-#### sidecar.container_port
+##### sidecar.container_port
 
 The port number for the container.
 
-#### sidecar.host_port
+- Type: **int**
+- **Optional**
+
+##### sidecar.health_check
+
+- Type: **ecs.HealthCheckConfig**
+
+##### sidecar.host_port
 
 The port number on the host to reserve for the container.
 
-#### sidecar.image
+- Type: **int**
+- **Optional**
+
+##### sidecar.image
 
 Image of the sidecar container.
 
-#### sidecar.memory
+- Type: **string**
+
+##### sidecar.memory
 
 The amount (in MiB) of memory to present to the container.
 
-#### sidecar.memory_reservation
+- Type: **int**
+- **Optional**
+
+##### sidecar.memory_reservation
 
 The soft limit (in MiB) of memory to reserve for the container.
 
-#### sidecar.name
+- Type: **int**
+- **Optional**
+
+##### sidecar.name
 
 Name of the container.
 
-#### sidecar.protocol
+- Type: **string**
+
+##### sidecar.protocol
 
 The protocol used for port mapping.
 
-#### sidecar.secrets
+- Type: **string**
+- **Optional**
+
+##### sidecar.secrets
 
 Secrets to expose to this container.
 
-#### sidecar.static_environment
+- Type: **map of string to string**
+- **Optional**
+
+##### sidecar.static_environment
 
 Environment variables to expose to this container.
 
+- Type: **map of string to string**
+- **Optional**
+
 ### Optional Parameters
 
-These parameters are used in the [`use` stanza](/docs/waypoint-hcl/use) for this plugin.
+These parameters are used in the [`use` stanza](/waypoint/docs/waypoint-hcl/use) for this plugin.
+
+#### alb (category)
+
+Provides additional configuration for using an ALB with ECS.
+
+- **Optional**
+
+##### alb.certificate
+
+The ARN of an AWS Certificate Manager cert to associate with the ALB.
+
+- Type: **string**
+- **Optional**
+
+##### alb.domain_name
+
+Fully qualified domain name to set for the ALB.
+
+Set along with zone_id to have DNS automatically setup for the ALB. this value should include the full hostname and domain name, for instance app.example.com.
+
+- Type: **string**
+- **Optional**
+
+##### alb.ingress_port
+
+Internet-facing traffic port. Defaults to 80 if 'certificate' is unset, 443 if set.
+
+Used to set the ALB listener port, and the ALB security group ingress port.
+
+- Type: **int64**
+- **Optional**
+
+##### alb.internal
+
+Whether or not the created ALB should be internal.
+
+Used when listener_arn is not set. If set, the created ALB will have a scheme of `internal`, otherwise by default it has a scheme of `internet-facing`.
+
+- Type: **bool**
+- **Optional**
+
+##### alb.load_balancer_arn
+
+The ARN on an existing ALB to configure.
+
+When this is set, Waypoint will use this ALB instead of creating its own. A target group will still be created for each deployment, and will be added to a listener on the configured ALB port (Waypoint will the listener if it doesn't exist). This allows users to configure their ALB outside Waypoint but still have Waypoint hook the application to that ALB.
+
+- Type: **string**
+- **Optional**
+
+##### alb.security_group_ids
+
+- Type: **list of string**
+- **Optional**
+
+##### alb.subnets
+
+The VPC subnets to use for the ALB.
+
+- Type: **list of string**
+- **Optional**
+- Default: public subnets in the default VPC
+
+##### alb.zone_id
+
+Route53 ZoneID to create a DNS record into.
+
+Set along with alb.domain_name to have DNS automatically setup for the ALB.
+
+- Type: **string**
+- **Optional**
 
 #### architecture
 
@@ -273,7 +378,7 @@ The name of the IAM role to use for ECS execution.
 
 - Type: **string**
 - **Optional**
-- Default: create a new exeuction IAM role based on the application name
+- Default: create a new execution IAM role based on the application name
 
 #### log_group
 
@@ -329,6 +434,25 @@ You may set a list of private subnets here to prevent your tasks from being dire
 - **Optional**
 - Default: public subnets in the default VPC
 
+#### target_group_protocol
+
+The protocol to use for routing traffic to the targets.
+
+The protocol to use for routing traffic to the targets. For Application Load Balancers, the supported protocols are HTTP and HTTPS. For Network Load Balancers, the supported protocols are TCP, TLS, UDP, or TCP_UDP. For Gateway Load Balancers, the supported protocol is GENEVE. A TCP_UDP listener must be associated with a TCP_UDP target group. If the target is a Lambda function, this parameter does not apply.
+
+- Type: **string**
+- **Optional**
+- Default: HTTP
+
+#### target_group_protocol_version
+
+The version of the protocol to use for routing traffic to the targets.
+
+[HTTP/HTTPS protocol] The protocol version. Specify GRPC to send requests to targets using gRPC. Specify HTTP2 to send requests to targets using HTTP/2. The default is HTTP1, which sends requests to targets using HTTP/1.1.
+
+- Type: **string**
+- **Optional**
+
 #### task_role_name
 
 The name of the task IAM role to assign.
@@ -349,9 +473,13 @@ If no task role name is specified a task role with a default name will be create
 
 ### Output Attributes
 
-Output attributes can be used in your `waypoint.hcl` as [variables](/docs/waypoint-hcl/variables) via [`artifact`](/docs/waypoint-hcl/variables/artifact) or [`deploy`](/docs/waypoint-hcl/variables/deploy).
+Output attributes can be used in your `waypoint.hcl` as [variables](/waypoint/docs/waypoint-hcl/variables) via [`artifact`](/waypoint/docs/waypoint-hcl/variables/artifact) or [`deploy`](/waypoint/docs/waypoint-hcl/variables/deploy).
 
 #### cluster
+
+- Type: **string**
+
+#### listener_arn
 
 - Type: **string**
 
@@ -361,7 +489,7 @@ Output attributes can be used in your `waypoint.hcl` as [variables](/docs/waypoi
 
 #### resource_state
 
-- Type: **anypb.Any**
+- Type: **opaqueany.Any**
 
 #### service_arn
 

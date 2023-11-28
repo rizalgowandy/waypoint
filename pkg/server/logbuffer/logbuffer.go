@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 // Package logbuffer provides a structure and API for efficiently reading
 // and writing logs that may be streamed to a server.
 package logbuffer
@@ -27,21 +30,21 @@ var (
 // the next read may "jump" forward to catch up. There is no way to explicitly
 // detect a jump currently.
 //
-// Writer
+// # Writer
 //
 // The writer calls Write on the buffer as it gets log entries. Multiple
 // writers are safe to use. The buffer will always successfully write all
 // entries, though it may result in extra allocations.
 //
-//     buf.Write(entries...)
+//	buf.Write(entries...)
 //
-// Reader
+// # Reader
 //
 // A reader calls buf.Reader to get a Reader structure, and then calls Read
 // to read values from the buffer. The Reader structure is used to maintain
 // per-reader cursors so that multiple readers can exist at multiple points.
 //
-// Internal Details
+// # Internal Details
 //
 // A buffer is structured as a sliding window over a set of "chunks". A chunk
 // is a set of log entries. As you write into the buffer, the buffer will

@@ -24,11 +24,17 @@ deploy {
 
 ### Required Parameters
 
-These parameters are used in the [`use` stanza](/docs/waypoint-hcl/use) for this plugin.
+This plugin has no required parameters.
+
+### Optional Parameters
+
+These parameters are used in the [`use` stanza](/waypoint/docs/waypoint-hcl/use) for this plugin.
 
 #### auth (category)
 
 The authentication information to log into the docker repository.
+
+- **Optional**
 
 ##### auth.auth
 
@@ -82,18 +88,6 @@ Username of Docker registry account.
 - Type: **string**
 - **Optional**
 
-#### client_config
-
-Client config for remote Docker engine.
-
-This config block can be used to configure a remote Docker engine. By default Waypoint will attempt to discover this configuration using the environment variables: `DOCKER_HOST` to set the url to the docker server. `DOCKER_API_VERSION` to set the version of the API to reach, leave empty for latest. `DOCKER_CERT_PATH` to load the TLS certificates from. `DOCKER_TLS_VERIFY` to enable or disable TLS verification, off by default.
-
-- Type: **docker.ClientConfig**
-
-### Optional Parameters
-
-These parameters are used in the [`use` stanza](/docs/waypoint-hcl/use) for this plugin.
-
 #### binds
 
 A 'source:destination' list of folders to mount onto the container from the host.
@@ -101,6 +95,15 @@ A 'source:destination' list of folders to mount onto the container from the host
 A list of folders to mount onto the container from the host. The expected format for each string entry in the list is `source:destination`. So for example: `binds: ["host_folder/scripts:/scripts"].
 
 - Type: **list of string**
+- **Optional**
+
+#### client_config
+
+Client config for remote Docker engine.
+
+This config block can be used to configure a remote Docker engine. By default Waypoint will attempt to discover this configuration using the environment variables: `DOCKER_HOST` to set the url to the docker server. `DOCKER_API_VERSION` to set the version of the API to reach, leave empty for latest. `DOCKER_CERT_PATH` to load the TLS certificates from. `DOCKER_TLS_VERIFY` to enable or disable TLS verification, off by default.
+
+- Type: **docker.ClientConfig**
 - **Optional**
 
 #### command
@@ -184,7 +187,7 @@ These environment variables should not be run of the mill configuration variable
 
 ### Output Attributes
 
-Output attributes can be used in your `waypoint.hcl` as [variables](/docs/waypoint-hcl/variables) via [`artifact`](/docs/waypoint-hcl/variables/artifact) or [`deploy`](/docs/waypoint-hcl/variables/deploy).
+Output attributes can be used in your `waypoint.hcl` as [variables](/waypoint/docs/waypoint-hcl/variables) via [`artifact`](/waypoint/docs/waypoint-hcl/variables/artifact) or [`deploy`](/waypoint/docs/waypoint-hcl/variables/deploy).
 
 #### container
 
@@ -200,4 +203,4 @@ Output attributes can be used in your `waypoint.hcl` as [variables](/docs/waypoi
 
 #### resource_state
 
-- Type: **anypb.Any**
+- Type: **opaqueany.Any**

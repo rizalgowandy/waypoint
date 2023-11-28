@@ -1,10 +1,15 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 .page-header {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   padding-bottom: scale.$base;
 
-  .icon-tile {
+  .hds-icon-tile {
     margin-right: scale.$base;
   }
 
@@ -74,6 +79,8 @@
       }
       .workspace-switching-indicator {
         margin-left: scale.$sm--2;
+        display: flex;
+        align-items: center;
       }
     }
   }

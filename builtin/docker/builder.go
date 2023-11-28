@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package docker
 
 import (
@@ -17,7 +20,6 @@ import (
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/jsonmessage"
-	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/waypoint-plugin-sdk/component"
 	"github.com/hashicorp/waypoint-plugin-sdk/docs"
@@ -26,6 +28,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	empty "google.golang.org/protobuf/types/known/emptypb"
 
 	wpdockerclient "github.com/hashicorp/waypoint/builtin/docker/client"
 	"github.com/hashicorp/waypoint/internal/assets"
@@ -129,6 +132,7 @@ build {
 }
 `)
 
+	doc.Input("component.Source")
 	doc.Output("docker.Image")
 
 	doc.SetField(
@@ -158,8 +162,7 @@ build {
 		"build_args",
 		"build args to pass to docker for the build step",
 		docs.Summary(
-			"An array of strings of build-time variables passed as build-arg to docker",
-			" for the build step.",
+			"A map of key/value pairs passed as build-args to docker for the build step.",
 		),
 	)
 

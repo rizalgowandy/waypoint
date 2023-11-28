@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import { helper } from '@ember/component/helper';
 
 // locationHostname returns a guess of the gRPC address based on the window hostname

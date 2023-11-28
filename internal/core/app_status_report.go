@@ -1,16 +1,18 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package core
 
 import (
 	"context"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes/any"
+	"github.com/hashicorp/opaqueany"
 	"github.com/mitchellh/mapstructure"
+	"github.com/pkg/errors"
 	"github.com/zclconf/go-cty/cty"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	newproto "google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/hashicorp/go-argmapper"
 	"github.com/hashicorp/go-hclog"
@@ -74,7 +76,54 @@ func (a *App) DeploymentStatusReport(
 	}
 	defer c.Close()
 
-	return a.statusReport(ctx, "deploy_statusreport", c, deployTarget, lastResp)
+	// Create the initial report. Assuming no error, we'll query ListInstances
+	// to find how many active instance connections are registered for this
+	// deployment. If there is a non-nil error, just return immediately.
+	report, rErr := a.statusReport(ctx, "deploy_statusreport", c, deployTarget, lastResp)
+	if rErr != nil {
+		return report, errors.Wrapf(rErr, "failed generating status report")
+	}
+
+	// Currently the statusReport() call above will only return a nil report if
+	// the error is NOT nil, but it is not an exported method so we guard here
+	// in case that changes.
+	if report != nil {
+		// check if we have any connected instances
+		resp, err := a.client.ListInstances(ctx, &pb.ListInstancesRequest{
+			Scope: &pb.ListInstancesRequest_DeploymentId{
+				DeploymentId: deployTarget.Id,
+			},
+		})
+		if err != nil {
+			a.logger.Warn("error retrieving connected instances", "error", err)
+			// we intentionally do not return the error from ListInstances, and
+			// instead simply log the error and return the original report and
+			// report error (if any)
+			return report, rErr
+		}
+
+		// Modify the status report with the active instance count. The
+		// statusReport() method called above both creates the report and saves
+		// it to state, so modifying it here requires us to re-upsert the report
+		// with the updated count.
+		report.InstancesCount = uint32(len(resp.Instances))
+		newReport, err := a.client.UpsertStatusReport(ctx, &pb.UpsertStatusReportRequest{
+			StatusReport: report,
+		})
+		if err != nil {
+			a.logger.Warn("error upserting updated status report", "error", err)
+			// we intentionally do not return the error from UpsertStatusReport,
+			// and instead simply log the error and return the original report
+			// and report error (if any)
+			return report, rErr
+		}
+
+		if newReport != nil && newReport.StatusReport != nil {
+			report = newReport.StatusReport
+		}
+	}
+
+	return report, rErr
 }
 
 func (a *App) ReleaseStatusReport(
@@ -150,7 +199,7 @@ func (a *App) statusReport(
 		Last:      last,
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed performing status report op")
 	}
 
 	reportResp, ok := msg.(*pb.StatusReport)
@@ -302,7 +351,7 @@ func (op *statusReportOperation) Upsert(
 		StatusReport: msg.(*pb.StatusReport),
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed upserting status report operation")
 	}
 
 	return resp.StatusReport, nil
@@ -353,7 +402,7 @@ func (op *statusReportOperation) Do(
 	report := result.(*sdk.StatusReport)
 
 	// Load Status Report message compiled by the plugin into the overall generated report
-	reportAny, err := anypb.New(report)
+	reportAny, err := opaqueany.New(report)
 	if err != nil {
 		return nil, err
 	}
@@ -426,7 +475,7 @@ func (op *statusReportOperation) StatusPtr(msg proto.Message) **pb.Status {
 	return &(msg.(*pb.StatusReport).Status)
 }
 
-func (op *statusReportOperation) ValuePtr(msg proto.Message) (**any.Any, *string) {
+func (op *statusReportOperation) ValuePtr(msg proto.Message) (**opaqueany.Any, *string) {
 	return &(msg.(*pb.StatusReport).StatusReport), &(msg.(*pb.StatusReport).StatusReportJson)
 }
 
@@ -435,8 +484,8 @@ func serverToSDKStatusReport(from *pb.StatusReport) (*sdk.StatusReport, error) {
 	// We embed the status report in the message so we just unmarshal
 	// the original.
 	var result sdk.StatusReport
-	return &result, anypb.UnmarshalTo(
-		from.StatusReport, &result, newproto.UnmarshalOptions{})
+	return &result, opaqueany.UnmarshalTo(
+		from.StatusReport, &result, proto.UnmarshalOptions{})
 }
 
 var _ operation = (*statusReportOperation)(nil)

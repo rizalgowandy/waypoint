@@ -1,6 +1,10 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package statetest
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,6 +21,7 @@ func init() {
 }
 
 func TestServerConfig(t *testing.T, factory Factory, restartF RestartFactory) {
+	ctx := context.Background()
 	t.Run("basic put and get", func(t *testing.T) {
 		require := require.New(t)
 
@@ -24,7 +29,7 @@ func TestServerConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		defer s.Close()
 
 		// Set
-		err := s.ServerConfigSet(&pb.ServerConfig{
+		err := s.ServerConfigSet(ctx, &pb.ServerConfig{
 			AdvertiseAddrs: []*pb.ServerConfig_AdvertiseAddr{},
 		})
 		if err != nil {
@@ -37,7 +42,7 @@ func TestServerConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		var cookie string
 		{
 			// Get
-			cfg, err := s.ServerConfigGet()
+			cfg, err := s.ServerConfigGet(ctx)
 			require.NoError(err)
 			require.NotNil(cfg)
 			require.NotNil(cfg.AdvertiseAddrs)
@@ -47,11 +52,11 @@ func TestServerConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		}
 
 		// Unset
-		require.NoError(s.ServerConfigSet(nil))
+		require.NoError(s.ServerConfigSet(ctx, nil))
 
 		{
 			// Get
-			cfg, err := s.ServerConfigGet()
+			cfg, err := s.ServerConfigGet(ctx)
 			require.NoError(err)
 			require.NotNil(cfg)
 			require.Nil(cfg.AdvertiseAddrs)
@@ -67,7 +72,7 @@ func TestServerConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 		defer s.Close()
 
 		// Set
-		err := s.ServerConfigSet(&pb.ServerConfig{
+		err := s.ServerConfigSet(ctx, &pb.ServerConfig{
 			Cookie: "hello",
 		})
 		if err != nil {
@@ -79,7 +84,7 @@ func TestServerConfig(t *testing.T, factory Factory, restartF RestartFactory) {
 
 		{
 			// Get
-			cfg, err := s.ServerConfigGet()
+			cfg, err := s.ServerConfigGet(ctx)
 			require.NoError(err)
 			require.NotNil(cfg)
 			require.NotEqual("hello", cfg.Cookie)

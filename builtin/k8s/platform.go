@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package k8s
 
 import (
@@ -10,7 +13,6 @@ import (
 	"github.com/docker/distribution/reference"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/hashicorp/go-hclog"
-	"github.com/hashicorp/waypoint/builtin/aws/utils"
 	"github.com/mitchellh/copystructure"
 	"github.com/mitchellh/mapstructure"
 	"google.golang.org/grpc/codes"
@@ -32,6 +34,7 @@ import (
 	"github.com/hashicorp/waypoint-plugin-sdk/framework/resource"
 	sdk "github.com/hashicorp/waypoint-plugin-sdk/proto/gen"
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
+	"github.com/hashicorp/waypoint/builtin/aws/utils"
 	"github.com/hashicorp/waypoint/builtin/docker"
 )
 
@@ -421,11 +424,11 @@ func configureContainer(
 	resourceRequests := make(map[corev1.ResourceName]k8sresource.Quantity)
 
 	if c.CPU != nil {
-		if c.CPU.Requested != "" {
-			q, err := k8sresource.ParseQuantity(c.CPU.Requested)
+		if c.CPU.Request != "" {
+			q, err := k8sresource.ParseQuantity(c.CPU.Request)
 			if err != nil {
 				return nil,
-					status.Errorf(codes.InvalidArgument, "failed to parse cpu request %s to k8s quantity: %s", c.CPU.Requested, err)
+					status.Errorf(codes.InvalidArgument, "failed to parse cpu request %s to k8s quantity: %s", c.CPU.Request, err)
 			}
 			resourceRequests[corev1.ResourceCPU] = q
 		}
@@ -441,11 +444,11 @@ func configureContainer(
 	}
 
 	if c.Memory != nil {
-		if c.Memory.Requested != "" {
-			q, err := k8sresource.ParseQuantity(c.Memory.Requested)
+		if c.Memory.Request != "" {
+			q, err := k8sresource.ParseQuantity(c.Memory.Request)
 			if err != nil {
 				return nil,
-					status.Errorf(codes.InvalidArgument, "failed to parse memory requested %s to k8s quantity: %s", c.Memory.Requested, err)
+					status.Errorf(codes.InvalidArgument, "failed to parse memory requested %s to k8s quantity: %s", c.Memory.Request, err)
 			}
 			resourceRequests[corev1.ResourceMemory] = q
 		}
@@ -480,7 +483,7 @@ func configureContainer(
 			}
 			resourceRequests[resourceName] = q
 		} else {
-			log.Warn("ignoring unrecognized k8s resources key: %q", k)
+			log.Warn("ignoring unrecognized k8s resources key", "key", k)
 		}
 	}
 
@@ -532,9 +535,9 @@ func configureContainer(
 
 	// Only define liveliness & readiness checks if container binds to a port
 	if defaultPort > 0 {
-		var handler corev1.Handler
+		var handler corev1.ProbeHandler
 		if c.ProbePath != "" {
-			handler = corev1.Handler{
+			handler = corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
 					Path: c.ProbePath,
 					Port: intstr.FromInt(defaultPort),
@@ -543,7 +546,7 @@ func configureContainer(
 		} else {
 			// If no probe path is defined, assume app will bind to default TCP port
 			// TODO: handle apps that aren't socket listeners
-			handler = corev1.Handler{
+			handler = corev1.ProbeHandler{
 				TCPSocket: &corev1.TCPSocketAction{
 					Port: intstr.FromInt(defaultPort),
 				},
@@ -551,13 +554,13 @@ func configureContainer(
 		}
 
 		container.LivenessProbe = &corev1.Probe{
-			Handler:             handler,
+			ProbeHandler:        handler,
 			InitialDelaySeconds: initialDelaySeconds,
 			TimeoutSeconds:      timeoutSeconds,
 			FailureThreshold:    failureThreshold,
 		}
 		container.ReadinessProbe = &corev1.Probe{
-			Handler:             handler,
+			ProbeHandler:        handler,
 			InitialDelaySeconds: initialDelaySeconds,
 			TimeoutSeconds:      timeoutSeconds,
 			FailureThreshold:    failureThreshold,
@@ -622,7 +625,7 @@ func (p *Platform) resourceDeploymentCreate(
 
 	// App container must have some kind of port
 	if len(appContainerSpec.Ports) == 0 {
-		log.Warn("No ports defined in waypoint.hcl - defaulting to http on port %d", DefaultServicePort)
+		log.Warn("No ports defined in waypoint.hcl - defaulting to http on port", "port", DefaultServicePort)
 		appContainerSpec.Ports = append(appContainerSpec.Ports, &Port{Port: DefaultServicePort, Name: "http"})
 	}
 
@@ -639,6 +642,11 @@ func (p *Platform) resourceDeploymentCreate(
 	// Add deploy config environment to container env vars
 	for k, v := range p.config.StaticEnvVars {
 		envVars[k] = v
+	}
+	if p.config.Pod != nil && p.config.Pod.Container != nil {
+		for k, v := range p.config.Pod.Container.StaticEnvVars {
+			envVars[k] = v
+		}
 	}
 	for k, v := range deployConfig.Env() {
 		envVars[k] = v
@@ -1470,8 +1478,8 @@ type Config struct {
 // ResourceConfig describes the request and limit of a resource. Used for
 // cpu and memory resource configuration.
 type ResourceConfig struct {
-	Requested string `hcl:"request,optional"`
-	Limit     string `hcl:"limit,optional"`
+	Request string `hcl:"request,optional" json:"request"`
+	Limit   string `hcl:"limit,optional" json:"limit"`
 }
 
 // AutoscaleConfig describes the possible configuration for creating a
@@ -1524,6 +1532,7 @@ type Container struct {
 // PodSecurityContext describes the security config for the Pod
 type PodSecurityContext struct {
 	RunAsUser    *int64 `hcl:"run_as_user"`
+	RunAsGroup   *int64 `hcl:"run_as_group"`
 	RunAsNonRoot *bool  `hcl:"run_as_non_root"`
 	FsGroup      *int64 `hcl:"fs_group"`
 }
@@ -1552,9 +1561,11 @@ func (p *Platform) Documentation() (*docs.Documentation, error) {
 	}
 
 	doc.Description("Deploy the application into a Kubernetes cluster using Deployment objects")
+	doc.Input("docker.Image")
+	doc.Output("k8s.Deployment")
 
 	doc.Example(`
-deploy "kubernetes" {
+use "kubernetes" {
 	image_secret = "registry_secret"
 	replicas = 3
 	probe_path = "/_healthz"
@@ -1906,7 +1917,7 @@ deploy "kubernetes" {
 		"scratch_path",
 		"a path for the service to store temporary data",
 		docs.Summary(
-			"a path to a directory that will be created for the service to store temporary data using tmpfs",
+			"a path to a directory that will be created for the service to store temporary data using EmptyDir.",
 		),
 	)
 
@@ -1961,7 +1972,7 @@ deploy "kubernetes" {
 				}),
 			)
 			doc.SetField(
-				"pod_security_context",
+				"security_context",
 				"holds pod-level security attributes and container settings",
 				docs.SubFields(func(doc *docs.SubFieldDoc) {
 					doc.SetField(

@@ -5,6 +5,12 @@ description: |-
   Waypoint can write application configuration to files. This is useful for applications that expect their configuration at a certain path or in a certain format.
 ---
 
+<Warning>
+
+This content is part of the legacy version of Waypoint that is no longer actively maintained. For additional information on the new vision of Waypoint, check out [this blog post](https://www.hashicorp.com/blog/a-new-vision-for-hcp-waypoint) and the [HCP Waypoint documentation](/hcp/docs/waypoint).
+
+</Warning>
+
 # Configuration Files
 
 Waypoint can write application configuration to files. This is useful for
@@ -15,7 +21,7 @@ or other services.
 ## Writing a Configuration File
 
 Application configuration file rendering must be configured in the
-`waypoint.hcl` file in the [`config` stanza](/docs/waypoint-hcl/config).
+`waypoint.hcl` file in the [`config` stanza](/waypoint/docs/waypoint-hcl/config).
 The example below writes a file `config/database.yml` relative to your
 deployed and running application:
 
@@ -41,7 +47,7 @@ production:
 Notice that since we're using the `templatefile` function, we can template
 the file by using variables such as `${host}` within our file. In this example,
 we set host to a static string, but the variable may also reference
-[internal values](/docs/app-config/internal) which allow files to be built
+[internal values](/waypoint/docs/app-config/internal) which allow files to be built
 up of dynamic values as well. When a value
 changes at runtime, Waypoint will re-render your configuration file and
 send a signal to your application.
@@ -54,7 +60,7 @@ send the signal `SIGUSR2`. Waypoint expects your application to respond to this
 signal by reloading the configuration.
 
 The file change signal can be customized using the
-[`file_change_signal` field](/docs/waypoint-hcl/config#file_change_signal)
+[`file_change_signal` field](/waypoint/docs/waypoint-hcl/config#file_change_signal)
 in the `config` stanza. For example, you `SIGHUP` is a common signal
 for reloading configuration. You could configure your application to
 receive this signal:

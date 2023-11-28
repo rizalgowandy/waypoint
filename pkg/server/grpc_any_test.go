@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package server
 
 import (
@@ -5,10 +8,10 @@ import (
 	"testing"
 
 	gwruntime "github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/hashicorp/opaqueany"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/protobuf/types/known/anypb"
 
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
 )
@@ -30,7 +33,7 @@ func TestGwNullAnyUnaryInterceptor(t *testing.T) {
 				called = true
 				return &pb.Build{
 					Artifact: &pb.Artifact{
-						Artifact: &anypb.Any{},
+						Artifact: &opaqueany.Any{},
 					},
 				}, nil
 			},

@@ -1,0 +1,20 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
+#create-git-help-text {
+
+  span {
+    display: flex;
+    align-items: center;
+
+    svg {
+      margin-right: scale.$sm-3;
+    }
+  }
+
+  &.pds-helpText {
+    margin-top: scale.$sm--3;
+  }
+}

@@ -25,7 +25,7 @@ This plugin has no required parameters.
 
 ### Optional Parameters
 
-These parameters are used in the [`use` stanza](/docs/waypoint-hcl/use) for this plugin.
+These parameters are used in the [`use` stanza](/waypoint/docs/waypoint-hcl/use) for this plugin.
 
 #### certificate
 
@@ -71,6 +71,15 @@ The TCP port to configure the ALB to listen on.
 - Type: **int**
 - **Optional**
 - Default: 80 for HTTP, 443 for HTTPS
+
+#### security_group_ids
+
+The existing security groups to add to the ALB.
+
+A set of existing security groups to add to the ALB.
+
+- Type: **list of string**
+- **Optional**
 
 #### subnets
 

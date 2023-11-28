@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package server
 
 import (
@@ -5,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/hashicorp/waypoint/pkg/tokenutil"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -63,8 +67,14 @@ func AuthUnaryInterceptor(checker AuthChecker) grpc.UnaryServerInterceptor {
 		}
 
 		var token string
-		if authHeader, ok := md["authorization"]; ok {
-			token = authHeader[0]
+		// First, let's see if the token is in our dedicated key.
+		if tokenHeader, ok := md[tokenutil.MetadataKey]; ok {
+			token = tokenHeader[0]
+		} else {
+			// Otherwise, see if it's been stuffed into Authorization.
+			if authHeader, ok := md["authorization"]; ok {
+				token = authHeader[0]
+			}
 		}
 
 		newCtx, err := checker.Authenticate(ctx, token, name, effects)
@@ -108,12 +118,21 @@ func AuthStreamInterceptor(checker AuthChecker) grpc.StreamServerInterceptor {
 			return status.Errorf(codes.InvalidArgument, "Retrieving metadata is failed")
 		}
 
-		authHeader, ok := md["authorization"]
-		if !ok {
-			return status.Errorf(codes.Unauthenticated, "Authorization token is not supplied")
+		var token string
+
+		// First, let's see if the token is in our dedicated key.
+		if tokenHeader, ok := md[tokenutil.MetadataKey]; ok {
+			token = tokenHeader[0]
+		} else {
+			// Otherwise, see if it's been stuffed into Authorization.
+			if authHeader, ok := md["authorization"]; ok {
+				token = authHeader[0]
+			}
 		}
 
-		token := authHeader[0]
+		if token == "" {
+			return status.Errorf(codes.Unauthenticated, "Authorization token is not supplied")
+		}
 
 		newCtx, err := checker.Authenticate(ss.Context(), token, name, effects)
 		if err != nil {

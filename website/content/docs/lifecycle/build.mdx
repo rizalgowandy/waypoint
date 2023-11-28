@@ -5,6 +5,12 @@ description: |-
   Waypoint build lifecycle documentation
 ---
 
+<Warning>
+
+This content is part of the legacy version of Waypoint that is no longer actively maintained. For additional information on the new vision of Waypoint, check out [this blog post](https://www.hashicorp.com/blog/a-new-vision-for-hcp-waypoint) and the [HCP Waypoint documentation](/hcp/docs/waypoint).
+
+</Warning>
+
 # Build
 
 A **build** takes application source and converts it to an _artifact_.
@@ -34,11 +40,11 @@ app "my-app" {
 
 Waypoint includes these builtin plugins to build a Docker image for your app.
 
-- [Docker Build](/plugins/docker#docker-builder)
-- Docker Pull Build
-- [Cloud Native Buildpacks](/plugins/pack)
+- [Docker Build](/waypoint/integrations/hashicorp/docker/latest/components/builder)
+- [Docker Pull Build](/waypoint/integrations/hashicorp/docker-pull/latest/components/builder)
+- [Cloud Native Buildpacks](/waypoint/integrations/hashicorp/pack)
 
-You can also create a [plugin](/plugins) to extend Waypoint with your own builder.
+You can also create a [plugin](/waypoint/docs/plugins) to extend Waypoint with your own builder.
 
 ### Choosing How to Build Your App
 
@@ -59,7 +65,7 @@ image. If you application works with the `docker build`
 [Docker command](https://docs.docker.com/engine/reference/commandline/build/)
 it should work well the Waypoint Docker plugin.
 
-Reference the [Docker plugin](/plugins/docker) for all configuration options.
+Reference the [Docker plugin](/waypoint/integrations/hashicorp/docker) for all configuration options.
 
 #### Docker Pull Build
 
@@ -133,11 +139,11 @@ provider's documentation for further details around this capability.
 
 #### Configuring an Alternative Buildpack Provider
 
-| Provider              | Builder Image                 |
-| --------------------- | ----------------------------- |
-| Heroku                | heroku/buildpacks:18          |
-| Paketo                | paketobuildpacks/builder:base |
-| Google Cloud Platform | gcr.io/buildpacks/builder:v1  |
+| Provider              | Builder Image                    |
+| --------------------- | -------------------------------- |
+| Heroku                | heroku/buildpacks:18             |
+| Paketo                | paketobuildpacks/builder:base    |
+| Google Cloud Platform | gcr.io/buildpacks/builder:latest |
 
 Several `waypoint.hcl` adjustments may be required to enable alternative builders.
 
@@ -190,9 +196,10 @@ directly with Docker
 
 ## Registry
 
-A build may optionally specify a registry to push the built artifact to.
-This is sometimes required so that the build artifact is accessible to the
-deployment platform.
+In the most common use cases of using static and on-demand runners, the
+registry must be specified. The registry block is only optional when building an
+artifact that can be accessed directly by the deploy plugin (such as, with in the
+same Docker daemon).
 
 If a registry is specified, the deployment step will use the artifact
 in the registry. If a registry is not specified, the deployment step will
@@ -214,7 +221,7 @@ Example Docker Registry Configuration
 ...
 ```
 
-Reference `aws-ecs` plugin documentation for an [AWS Elastic Container Registry example](/plugins/aws-ecs#examples).
+Reference the [AWS ECS plugin](/waypoint/integrations/hashicorp/aws-ecs) documentation for an AWS Elastic Container Registry example.
 
 ### Scenarios for a Registry
 
@@ -240,9 +247,9 @@ Create a file with the registry authentication:
 
 ```json
 {
-  “username”: “YOURUSERNAME”,
-  “password”: “YOURPASSWORD”,
-  “email”: "YOUREMAIL@EXAMPLE.COM”
+  "username": "YOURUSERNAME",
+  "password": "YOURPASSWORD",
+  "email": "YOUREMAIL@EXAMPLE.COM"
 }
 ```
 
@@ -254,15 +261,64 @@ Reference the file in `waypoint.hcl`:
         use "docker" {}
           registry {
             use "docker" {
-              image = "registry.example.com/image"
-              tag = "latest"
+              image        = "registry.example.com/image"
+              tag          = "latest"
               encoded_auth = filebase64("/path/to/dockerAuth.json")
+              local        = false
             }
           }
         }
     }
 ...
 ```
+
+#### Authentication with Vault
+
+Waypoint can read [dynamic config variables](/waypoint/docs/intro/use-cases/dynamic-config-vault-dynamic-secrets)
+directly from Vault:
+
+```hcl
+...
+    build {
+        use "docker" {}
+          registry {
+            use "docker" {
+              image    = "registry.example.com/image"
+              tag      = "latest"
+              username = var.registry_username
+              password = var.registry_password
+              local    = false
+            }
+          }
+        }
+    }
+
+...
+
+variable "registry_username" {
+  default = dynamic("vault", {
+    path = "secret/data/registry"
+    key  = "/data/registry_username"
+  })
+  type        = string
+  sensitive   = true # Notice this var is marked as sensitive
+  description = "username for container registry"
+}
+
+variable "registry_password" {
+  default = dynamic("vault", {
+    path = "secret/data/registry"
+    key  = "/data/registry_password"
+  })
+  type        = string
+  sensitive   = true # Notice this var is marked as sensitive
+  description = "password for registry"
+}
+```
+
+This means at runtime, when Waypoint goes to push the built application artifact,
+the registry username and password will be loaded directly from Vault and used
+to authenticate to the remote private repository.
 
 #### Out of Band Authentication
 
@@ -297,5 +353,5 @@ is configured with the private registry credentials. Here is an example
 #### Platforms and Private Registries
 
 Reference [Deploy Private Registry
-documentation](/docs/lifecycle/deploy#private-registries) for details on how to
+documentation](/waypoint/docs/lifecycle/deploy#private-registries) for details on how to
 configure deployment for private registries.

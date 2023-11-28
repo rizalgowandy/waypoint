@@ -1,12 +1,15 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package core
 
 import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/zclconf/go-cty/cty"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/hashicorp/waypoint/internal/pkg/ctystructure"
 )

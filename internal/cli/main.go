@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 //go:generate go-bindata -nomemcopy -nometadata -pkg datagen -o datagen/datagen.go -prefix data/ data/...
@@ -49,8 +52,9 @@ var (
 
 	// hiddenCommands are not shown in CLI help output.
 	hiddenCommands = map[string]struct{}{
-		"plugin": {},
-		"k8s":    {},
+		"plugin":   {},
+		"k8s":      {},
+		"template": {},
 
 		// Deprecated:
 		"token": {}, // replaced by "user"
@@ -217,6 +221,11 @@ func Commands(
 				baseCommand: baseCommand,
 			}, nil
 		},
+		"config delete": func() (cli.Command, error) {
+			return &ConfigDeleteCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
 		"config source-get": func() (cli.Command, error) {
 			return &ConfigSourceGetCommand{
 				baseCommand: baseCommand,
@@ -224,6 +233,11 @@ func Commands(
 		},
 		"config source-set": func() (cli.Command, error) {
 			return &ConfigSourceSetCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+		"config source-delete": func() (cli.Command, error) {
+			return &ConfigSourceDeleteCommand{
 				baseCommand: baseCommand,
 			}, nil
 		},
@@ -521,6 +535,11 @@ func Commands(
 				HelpText:     helpText["runner-profile"][1],
 			}, nil
 		},
+		"runner profile edit": func() (cli.Command, error) {
+			return &RunnerProfileEditCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
 		"runner profile set": func() (cli.Command, error) {
 			return &RunnerProfileSetCommand{
 				baseCommand: baseCommand,
@@ -533,6 +552,22 @@ func Commands(
 		},
 		"runner profile list": func() (cli.Command, error) {
 			return &RunnerProfileListCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+		"runner profile delete": func() (cli.Command, error) {
+			return &RunnerProfileDeleteCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+
+		"runner install": func() (cli.Command, error) {
+			return &RunnerInstallCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+		"runner uninstall": func() (cli.Command, error) {
+			return &RunnerUninstallCommand{
 				baseCommand: baseCommand,
 			}, nil
 		},
@@ -601,6 +636,28 @@ func Commands(
 			}, nil
 		},
 
+		"pipeline": func() (cli.Command, error) {
+			return &helpCommand{
+				SynopsisText: helpText["pipeline"][0],
+				HelpText:     helpText["pipeline"][1],
+			}, nil
+		},
+		"pipeline list": func() (cli.Command, error) {
+			return &PipelineListCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+		"pipeline inspect": func() (cli.Command, error) {
+			return &PipelineInspectCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+		"pipeline run": func() (cli.Command, error) {
+			return &PipelineRunCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+
 		"project": func() (cli.Command, error) {
 			return &helpCommand{
 				SynopsisText: helpText["project"][0],
@@ -619,6 +676,11 @@ func Commands(
 		},
 		"project inspect": func() (cli.Command, error) {
 			return &ProjectInspectCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+		"project destroy": func() (cli.Command, error) {
+			return &ProjectDestroyCommand{
 				baseCommand: baseCommand,
 			}, nil
 		},
@@ -695,6 +757,28 @@ func Commands(
 			}, nil
 		},
 
+		"task": func() (cli.Command, error) {
+			return &helpCommand{
+				SynopsisText: helpText["task"][0],
+				HelpText:     helpText["task"][1],
+			}, nil
+		},
+		"task list": func() (cli.Command, error) {
+			return &TaskListCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+		"task inspect": func() (cli.Command, error) {
+			return &TaskInspectCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+		"task cancel": func() (cli.Command, error) {
+			return &TaskCancelCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+
 		"workspace": func() (cli.Command, error) {
 			return &helpCommand{
 				SynopsisText: helpText["workspace"][0],
@@ -713,6 +797,37 @@ func Commands(
 		},
 		"workspace list": func() (cli.Command, error) {
 			return &WorkspaceListCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+		"template": func() (cli.Command, error) {
+			return &helpCommand{
+				SynopsisText: helpText["template"][0],
+				HelpText:     helpText["template"][1],
+			}, nil
+		},
+		"template create": func() (cli.Command, error) {
+			return &ProjectTemplateCreateCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+		"template inspect": func() (cli.Command, error) {
+			return &ProjectTemplateInspectCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+		"template list": func() (cli.Command, error) {
+			return &ProjectTemplateListCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+		"template update": func() (cli.Command, error) {
+			return &ProjectTemplateUpdateCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+		"template delete": func() (cli.Command, error) {
+			return &ProjectTemplateDeleteCommand{
 				baseCommand: baseCommand,
 			}, nil
 		},
@@ -1011,6 +1126,16 @@ Manage and check the status of jobs in Waypoint.
 `,
 	},
 
+	"pipeline": {
+		"Pipeline management",
+		`
+Pipeline config management.
+
+Pipelines are custom defined Waypoint operations that allow you to customize
+your application delivery experience.
+`,
+	},
+
 	"project": {
 		"Project management",
 		`
@@ -1042,6 +1167,13 @@ Waypoint server is required for logs, exec, config, and more to work.
 The recommended way to run a server is "waypoint install".
 
 This command contains further subcommands to work with servers.
+`,
+	},
+
+	"task": {
+		"Task introspection and management",
+		`
+Manage and check the status of On-Demand Runner Tasks in Waypoint.
 `,
 	},
 
@@ -1093,6 +1225,15 @@ runners (i.e. on-demand runners) when needed using the configured plugin.
 		"Manage workspaces",
 		`
 List and inspect Workspaces for this context.
+`,
+	},
+	"template": {
+		"Project Template management",
+		`
+Manage project templates stored within Waypoint server. These templates are
+used to create Waypoint projects with defaults defined as well as with
+associated infrastructure that a deployed application may need through
+Terraform no-code modules.
 `,
 	},
 }

@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package lambda
 
 import (
@@ -12,6 +15,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -19,6 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/aws/aws-sdk-go/service/iam"
 	"github.com/aws/aws-sdk-go/service/lambda"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/waypoint/builtin/aws/ecr"
 	"github.com/hashicorp/waypoint/builtin/aws/utils"
@@ -38,10 +44,56 @@ type Platform struct {
 // ConfigSet is called after a configuration has been decoded
 // we can use this to validate the config
 func (p *Platform) ConfigSet(config interface{}) error {
-	_, ok := config.(*Config)
+	c, ok := config.(*Config)
 	if !ok {
 		// this should never happen
-		return fmt.Errorf("Invalid configuration, expected *lambda.Config, got %s", reflect.TypeOf(config))
+		return fmt.Errorf("Invalid configuration, expected *lambda.Config, got %q", reflect.TypeOf(config))
+	}
+
+	// validate architecture
+	if c.Architecture != "" {
+		architectures := make([]interface{}, len(lambda.Architecture_Values()))
+
+		for i, ca := range lambda.Architecture_Values() {
+			architectures[i] = ca
+		}
+
+		var validArchitectures []string
+		for _, arch := range lambda.Architecture_Values() {
+			validArchitectures = append(validArchitectures, fmt.Sprintf("%q", arch))
+		}
+
+		if err := utils.Error(validation.ValidateStruct(c,
+			validation.Field(&c.Architecture,
+				validation.In(architectures...).Error(fmt.Sprintf("Unsupported function architecture %q. Must be one of [%s], or left blank", c.Architecture, strings.Join(validArchitectures, ", "))),
+			),
+		)); err != nil {
+			return err
+		}
+	}
+
+	// validate timeout - max is 900 (15 minutes)
+	if c.Timeout != 0 {
+		if err := utils.Error(validation.ValidateStruct(c,
+			validation.Field(&c.Timeout,
+				validation.Min(0).Error("Timeout must not be negative"),
+				validation.Max(900).Error("Timeout must be less than or equal to 15 minutes"),
+			),
+		)); err != nil {
+			return err
+		}
+	}
+
+	// validate storage - value between 512 and 10240
+	if c.StorageMB != 0 {
+		if err := utils.Error(validation.ValidateStruct(c,
+			validation.Field(&c.StorageMB,
+				validation.Min(512).Error("Storage must a value between 512 and 10240"),
+				validation.Max(10240).Error("Storage must a value between 512 and 10240"),
+			),
+		)); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -110,6 +162,9 @@ const (
 
 	// The instruction set architecture that the function supports.
 	DefaultArchitecture = lambda.ArchitectureX8664
+
+	// The storage size (in MB) for the function's `/tmp` directory
+	DefaultStorageSize = 512
 )
 
 const lambdaRolePolicy = `{
@@ -241,6 +296,20 @@ func (p *Platform) Deploy(
 		architecture = DockerArchitectureMapper(img.Architecture, log)
 	}
 
+	storage := int64(p.config.StorageMB)
+	if storage == 0 {
+		storage = DefaultStorageSize
+	}
+
+	envVars := make(map[string]*string)
+	for k, v := range p.config.StaticEnvVars {
+		envVars[k] = aws.String(v)
+	}
+
+	for k, v := range deployConfig.Env() {
+		envVars[k] = aws.String(v)
+	}
+
 	step.Done()
 
 	step = sg.Add("Reading Lambda function: %s", src.App)
@@ -269,39 +338,94 @@ func (p *Platform) Deploy(
 			reset = true
 		}
 
+		if *curFunc.Configuration.EphemeralStorage.Size != storage {
+			update.EphemeralStorage = &lambda.EphemeralStorage{
+				Size: aws.Int64(storage),
+			}
+			reset = true
+		}
+
+		// if the lambda has no env vars, Environment will be nil
+		if curFunc.Configuration.Environment != nil {
+			// compare config to AWS
+			if !reflect.DeepEqual(envVars, curFunc.Configuration.Environment.Variables) {
+				update.Environment = &lambda.Environment{
+					Variables: envVars,
+				}
+				reset = true
+			}
+		} else {
+			// only update if we have any envVars to set
+			if len(envVars) > 0 {
+				update.Environment = &lambda.Environment{
+					Variables: envVars,
+				}
+				reset = true
+			}
+		}
+
 		if reset {
+			step.Update("Detected a configuration change. Updating Lambda function...")
+
 			update.FunctionName = curFunc.Configuration.FunctionArn
 
 			_, err = lamSvc.UpdateFunctionConfiguration(&update)
 			if err != nil {
 				return nil, errors.Wrapf(err, "unable to update function configuration")
 			}
+
+			step.Update("Updated Lambda configuration.")
 		}
 
-		funcCfg, err := lamSvc.UpdateFunctionCode(&lambda.UpdateFunctionCodeInput{
-			FunctionName:  aws.String(src.App),
-			ImageUri:      aws.String(img.Name()),
-			Architectures: aws.StringSlice([]string{architecture}),
-		})
+		step.Done()
 
-		if err != nil {
-			if aerr, ok := err.(awserr.Error); ok {
-				switch aerr.Code() {
-				case "ValidationException":
-					// likely here if Architectures was invalid
-					if architecture != lambda.ArchitectureX8664 && architecture != lambda.ArchitectureArm64 {
-						return nil, fmt.Errorf("architecture must be either \"x86_64\" or \"arm64\"")
+		// the following update has retry behavior in case the
+		// previous `UpdateFunctionConfiguration` call occurs
+		step = sg.Add("Updating function code...")
+
+		d := time.Now().Add(time.Minute * time.Duration(5))
+		ctx, cancel := context.WithDeadline(ctx, d)
+		defer cancel()
+		ticker := time.NewTicker(5 * time.Second)
+
+		shouldRetry := true
+		for shouldRetry {
+			funcCfg, err := lamSvc.UpdateFunctionCode(&lambda.UpdateFunctionCodeInput{
+				FunctionName:  aws.String(src.App),
+				ImageUri:      aws.String(img.Name()),
+				Architectures: aws.StringSlice([]string{architecture}),
+			})
+
+			if err == nil {
+				funcarn = *funcCfg.FunctionArn
+				step.Update("Updated function code!")
+				shouldRetry = false
+			}
+
+			if err != nil {
+				if aerr, ok := err.(awserr.Error); ok {
+					switch aerr.Code() {
+					// unrecoverable error
+					case "ValidationException":
+						// likely here if Architectures was invalid
+						if architecture != lambda.ArchitectureX8664 && architecture != lambda.ArchitectureArm64 {
+							return nil, status.Error(codes.FailedPrecondition, "architecture must be either \"x86_64\" or \"arm64\"")
+						}
+						// other validation error
+						return nil, err
+					// Function update in progress error
+					case "ResourceConflictException":
+						step.Update("Waiting for function to be available...")
+						select {
+						case <-ticker.C: // retry
+						case <-ctx.Done(): // abort
+							return nil, status.Errorf(codes.Aborted, "Context cancelled from timeout when waiting for lambda function to be available")
+						}
 					}
+				} else {
 					return nil, err
 				}
 			}
-			return nil, err
-		}
-
-		funcarn = *funcCfg.FunctionArn
-
-		if err != nil {
-			return nil, err
 		}
 
 		// We couldn't read the function before, so we'll go ahead and create one.
@@ -326,6 +450,9 @@ func (p *Platform) Deploy(
 				},
 				ImageConfig:   &lambda.ImageConfig{},
 				Architectures: aws.StringSlice([]string{architecture}),
+				Environment: &lambda.Environment{
+					Variables: envVars,
+				},
 			})
 
 			if err != nil {
@@ -788,7 +915,7 @@ deploy {
 	doc.SetField(
 		"memory",
 		"the amount of memory, in megabytes, to assign the function",
-		docs.Default("265"),
+		docs.Default("256"),
 	)
 
 	doc.SetField(
@@ -801,6 +928,23 @@ deploy {
 		"architecture",
 		"The instruction set architecture that the function supports. Valid values are: \"x86_64\", \"arm64\"",
 		docs.Default("x86_64"),
+	)
+
+	doc.SetField(
+		"storagemb",
+		"The storage size (in MB) of the Lambda function's `/tmp` directory. Must be a value between 512 and 10240.",
+		docs.Default("512"),
+	)
+
+	doc.SetField(
+		"static_environment",
+		"environment variables to expose to the lambda function",
+		docs.Summary(
+			"environment variables that are meant to configure the application in a static",
+			"way. This might be to control an image that has multiple modes of operation,",
+			"selected via environment variable. Most configuration should use the waypoint",
+			"config commands.",
+		),
 	)
 
 	return doc, nil
@@ -822,13 +966,24 @@ type Config struct {
 	Memory int `hcl:"memory,optional"`
 
 	// The number of seconds to wait for a function to complete it's work.
-	// Defaults to 256
+	// Defaults to 60
 	Timeout int `hcl:"timeout,optional"`
 
 	// The instruction set architecture that the function supports.
 	// Valid values are: "x86_64", "arm64"
 	// Defaults to "x86_64".
 	Architecture string `hcl:"architecture,optional"`
+
+	// The storage size (in MB) of the Lambda function's `/tmp` directory.
+	// Must be a value between 512 and 10240.
+	// Defaults to 512 MB.
+	StorageMB int `hcl:"storagemb,optional"`
+
+	// Environment variables that are meant to configure the application in a static
+	// way. This might be control an image that has multiple modes of operation,
+	// selected via environment variable. Most configuration should use the waypoint
+	// config commands.
+	StaticEnvVars map[string]string `hcl:"static_environment,optional"`
 }
 
 var (

@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import Ember from 'ember';
 import Component from '@glimmer/component';
 import { inject as service } from '@ember/service';
@@ -131,6 +136,11 @@ export default class AppFormProjectRepositorySettings extends Component<ProjectS
 
   populateExistingFields(projectFromArgs: Project.AsObject, currentModel: Project.AsObject): void {
     for (let [key, value] of Object.entries(projectFromArgs)) {
+      // Guard against prototype pollution
+      if (!Object.prototype.hasOwnProperty.call(currentModel, key)) {
+        continue;
+      }
+
       if (isEmpty(value)) {
         currentModel[key] = this.defaultProject[key];
         continue;

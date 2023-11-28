@@ -5,6 +5,12 @@ sidebar_title: 'trigger inspect'
 description: 'Inspect a registered trigger URL configuration.'
 ---
 
+<Warning>
+
+This content is part of the legacy version of Waypoint that is no longer actively maintained. For additional information on the new vision of Waypoint, check out [this blog post](https://www.hashicorp.com/blog/a-new-vision-for-hcp-waypoint) and the [HCP Waypoint documentation](/hcp/docs/waypoint).
+
+</Warning>
+
 # Waypoint Trigger inspect
 
 Command: `waypoint trigger inspect`
@@ -21,7 +27,7 @@ Inspect a registered trigger URL configuration.
 
 #### Global Options
 
-- `-plain` - Plain output: no colors, no animation.
+- `-plain` - Plain output: no colors, no animation. The default is false.
 - `-app=<string>` (`-a`) - App to target. Certain commands require a single app target for Waypoint configurations with multiple apps. If you have a single app, then this can be ignored.
 - `-project=<string>` (`-p`) - Project to target.
 - `-workspace=<string>` (`-w`) - Workspace to operate in.
@@ -38,6 +44,6 @@ Inspect a registered trigger URL configuration.
 
 #### Command Options
 
-- `-json` - Output trigger URL configuration information as JSON. This includes more fields since this is the complete API structure.
+- `-json` - Output trigger URL configuration information as JSON. This includes more fields since this is the complete API structure. The default is false.
 
 @include "commands/trigger-inspect_more.mdx"

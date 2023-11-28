@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ceb
 
 import (
@@ -5,16 +8,18 @@ import (
 	"crypto/tls"
 	"time"
 
-	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/hashicorp/go-hclog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
+	empty "google.golang.org/protobuf/types/known/emptypb"
 
+	"github.com/hashicorp/waypoint/pkg/inlinekeepalive"
 	"github.com/hashicorp/waypoint/pkg/protocolversion"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
+	"github.com/hashicorp/waypoint/pkg/tokenutil"
 )
 
 // client returns the Waypoint client or blocks until it is set or the
@@ -79,16 +84,28 @@ func (ceb *CEB) dialServer(ctx context.Context, cfg *config, isRetry bool) error
 	grpcOpts := []grpc.DialOption{
 		grpc.WithTimeout(5 * time.Second),
 		grpc.WithUnaryInterceptor(protocolversion.UnaryClientInterceptor(protocolversion.Current())),
-		grpc.WithStreamInterceptor(protocolversion.StreamClientInterceptor(protocolversion.Current())),
+		grpc.WithChainStreamInterceptor(
+			protocolversion.StreamClientInterceptor(protocolversion.Current()),
+
+			// Send and receive keepalive messages along grpc streams.
+			// Some loadbalancers (ALBs) don't respect http2 pings.
+			// (https://stackoverflow.com/questions/66818645/http2-ping-frames-over-aws-alb-grpc-keepalive-ping)
+			// This interceptor keeps low-traffic streams active and not timed out.
+			// NOTE(izaak): long-term, we should ensure that all of our
+			// streaming endpoints are robust to disconnect/resume.
+			inlinekeepalive.KeepaliveClientStreamInterceptor(time.Duration(5)*time.Second),
+		),
 	}
 	if !cfg.ServerTls {
 		grpcOpts = append(grpcOpts, grpc.WithInsecure())
+	} else if cfg.ServerTlsSkipVerify {
+		grpcOpts = append(grpcOpts, grpc.WithTransportCredentials(
+			credentials.NewTLS(&tls.Config{InsecureSkipVerify: true}),
+		))
 	} else {
-		if cfg.ServerTlsSkipVerify {
-			grpcOpts = append(grpcOpts, grpc.WithTransportCredentials(
-				credentials.NewTLS(&tls.Config{InsecureSkipVerify: true}),
-			))
-		}
+		grpcOpts = append(grpcOpts, grpc.WithTransportCredentials(
+			credentials.NewTLS(&tls.Config{}),
+		))
 	}
 
 	// Connect to this server
@@ -139,6 +156,8 @@ func (ceb *CEB) dialServer(ctx context.Context, cfg *config, isRetry bool) error
 	// Init our client
 	client := pb.NewWaypointClient(conn)
 
+	authMethod := "token"
+
 	// If we have an invite token, we have to exchange that and re-establish
 	// the connection with the auth setup. If we have no token, we're done.
 	if cfg.InviteToken != "" {
@@ -151,14 +170,31 @@ func (ceb *CEB) dialServer(ctx context.Context, cfg *config, isRetry bool) error
 			return err
 		}
 
+		token := resp.Token
+
+		var perRPC credentials.PerRPCCredentials = tokenutil.StaticToken(token)
+
+		if token != "" {
+			externalRPC, err := tokenutil.SetupExternalCreds(ctx, ceb.logger, token)
+			if err != nil {
+				return err
+			}
+
+			if externalRPC != nil {
+				perRPC = externalRPC
+				authMethod = "oauth2"
+			}
+		}
+
 		// We have our token, setup that usage
-		grpcOpts = append(grpcOpts, grpc.WithPerRPCCredentials(staticToken(resp.Token)))
+		grpcOpts = append(grpcOpts, grpc.WithPerRPCCredentials(perRPC))
 
 		// Reconnect and return
 		conn.Close()
 		ceb.logger.Debug("reconnecting to server with authentication")
 		conn, err = grpc.DialContext(ctx, cfg.ServerAddr, grpcOpts...)
 		if err != nil {
+			ceb.logger.Warn("failed to connect to server", "err", err)
 			return err
 		}
 		client = pb.NewWaypointClient(conn)
@@ -177,6 +213,7 @@ func (ceb *CEB) dialServer(ctx context.Context, cfg *config, isRetry bool) error
 		"api_current", vsnResp.Info.Api.Current,
 		"entrypoint_min", vsnResp.Info.Entrypoint.Minimum,
 		"entrypoint_current", vsnResp.Info.Entrypoint.Current,
+		"auth_method", authMethod,
 	)
 
 	vsn, err := protocolversion.Negotiate(protocolversion.Current().Entrypoint, vsnResp.Info.Entrypoint)
@@ -195,20 +232,4 @@ func (ceb *CEB) dialServer(ctx context.Context, cfg *config, isRetry bool) error
 	ceb.cleanup(func() { connCopy.Close() })
 
 	return nil
-}
-
-// This is a weird type that only exists to satisify the interface required by
-// grpc.WithPerRPCCredentials. That api is designed to incorporate things like OAuth
-// but in our case, we really just want to send this static token through, but we still
-// need to do the dance.
-type staticToken string
-
-func (t staticToken) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
-	return map[string]string{
-		"authorization": string(t),
-	}, nil
-}
-
-func (t staticToken) RequireTransportSecurity() bool {
-	return false
 }

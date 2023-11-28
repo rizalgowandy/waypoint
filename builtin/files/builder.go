@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package files
 
 import (
@@ -44,6 +47,8 @@ func (b *Builder) Documentation() (*docs.Documentation, error) {
 	}
 
 	doc.Description("Generates a value representing a path on disk")
+	doc.Input("component.Source")
+	doc.Output("files.Files")
 
 	doc.Example(`
 build {

@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package datasource
 
 import (
@@ -6,7 +9,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/golang/protobuf/ptypes"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -214,9 +216,9 @@ func TestGitSourceGet(t *testing.T) {
 		// Verify ref
 		ref := refRaw.Ref.(*pb.Job_DataSource_Ref_Git).Git
 		require.Equal("b6bf15100c570f2be6a231a095d395ed16dfed81", ref.Commit)
+		require.Equal("Fixes\n", ref.CommitMessage)
 
-		ts, err := ptypes.Timestamp(ref.Timestamp)
-		require.NoError(err)
+		ts := ref.Timestamp.AsTime()
 		require.False(ts.IsZero())
 	})
 
@@ -278,6 +280,157 @@ func TestGitSourceGet(t *testing.T) {
 		require.NoError(err)
 		_, err = os.Stat(filepath.Join(dir, "two"))
 		require.Error(err)
+	})
+
+	t.Run("submodule: clone disabled (default)", func(t *testing.T) {
+		require := require.New(t)
+
+		var s GitSource
+		dir, _, closer, err := s.Get(
+			context.Background(),
+			hclog.L(),
+			terminal.ConsoleUI(context.Background()),
+			&pb.Job_DataSource{
+				Source: &pb.Job_DataSource_Git{
+					Git: &pb.Job_Git{
+						Url: testGitFixture(t, "git-submodule"),
+					},
+				},
+			},
+			"",
+		)
+		require.NoError(err)
+		if closer != nil {
+			defer closer()
+		}
+
+		// Verify files
+		_, err = os.Stat(filepath.Join(dir, "hello.txt"))
+		require.NoError(err)
+		_, err = os.Stat(filepath.Join(dir, "examples", "README.md"))
+		require.Error(err)
+	})
+
+	t.Run("submodule: recursion on clone", func(t *testing.T) {
+		require := require.New(t)
+
+		var s GitSource
+		dir, _, closer, err := s.Get(
+			context.Background(),
+			hclog.L(),
+			terminal.ConsoleUI(context.Background()),
+			&pb.Job_DataSource{
+				Source: &pb.Job_DataSource_Git{
+					Git: &pb.Job_Git{
+						Url:               testGitFixture(t, "git-submodule"),
+						RecurseSubmodules: 10,
+					},
+				},
+			},
+			"",
+		)
+		require.NoError(err)
+		if closer != nil {
+			defer closer()
+		}
+
+		// Verify files
+		_, err = os.Stat(filepath.Join(dir, "hello.txt"))
+		require.NoError(err)
+		_, err = os.Stat(filepath.Join(dir, "examples", "README.md"))
+		require.NoError(err)
+	})
+
+	t.Run("submodule: ref with no submodules", func(t *testing.T) {
+		require := require.New(t)
+
+		var s GitSource
+		dir, _, closer, err := s.Get(
+			context.Background(),
+			hclog.L(),
+			terminal.ConsoleUI(context.Background()),
+			&pb.Job_DataSource{
+				Source: &pb.Job_DataSource_Git{
+					Git: &pb.Job_Git{
+						Url:               testGitFixture(t, "git-submodule"),
+						Ref:               "758c263",
+						RecurseSubmodules: 10,
+					},
+				},
+			},
+			"",
+		)
+		require.NoError(err)
+		if closer != nil {
+			defer closer()
+		}
+
+		// Verify files
+		_, err = os.Stat(filepath.Join(dir, "hello.txt"))
+		require.NoError(err)
+		_, err = os.Stat(filepath.Join(dir, "examples", "README.md"))
+		require.Error(err)
+	})
+
+	t.Run("submodule: removed HEAD", func(t *testing.T) {
+		require := require.New(t)
+
+		var s GitSource
+		dir, _, closer, err := s.Get(
+			context.Background(),
+			hclog.L(),
+			terminal.ConsoleUI(context.Background()),
+			&pb.Job_DataSource{
+				Source: &pb.Job_DataSource_Git{
+					Git: &pb.Job_Git{
+						Url:               testGitFixture(t, "git-submodule-rm"),
+						RecurseSubmodules: 10,
+					},
+				},
+			},
+			"",
+		)
+		require.NoError(err)
+		if closer != nil {
+			defer closer()
+		}
+
+		// Verify files
+		_, err = os.Stat(filepath.Join(dir, "hello.txt"))
+		require.NoError(err)
+		_, err = os.Stat(filepath.Join(dir, "examples", "README.md"))
+		require.Error(err)
+	})
+
+	t.Run("submodule: ref with submodule", func(t *testing.T) {
+		require := require.New(t)
+
+		var s GitSource
+		dir, _, closer, err := s.Get(
+			context.Background(),
+			hclog.L(),
+			terminal.ConsoleUI(context.Background()),
+			&pb.Job_DataSource{
+				Source: &pb.Job_DataSource_Git{
+					Git: &pb.Job_Git{
+						Url:               testGitFixture(t, "git-submodule-rm"),
+						Ref:               "27e97ef4f312fe37588f84209e4d056825dee614",
+						RecurseSubmodules: 10,
+					},
+				},
+			},
+			"",
+		)
+		require.NoError(err)
+		if closer != nil {
+			defer closer()
+		}
+
+		// Verify files
+		_, err = os.Stat(filepath.Join(dir, "hello.txt"))
+		require.NoError(err)
+		_, err = os.Stat(filepath.Join(dir, "examples", "README.md"))
+		require.NoError(err)
 	})
 }
 

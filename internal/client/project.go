@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package client
 
 import (
@@ -9,8 +12,8 @@ import (
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
 	configpkg "github.com/hashicorp/waypoint/internal/config"
 	"github.com/hashicorp/waypoint/internal/runner"
-	"github.com/hashicorp/waypoint/internal/serverclient"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
+	"github.com/hashicorp/waypoint/pkg/serverclient"
 )
 
 // Project is the primary structure for interacting with a Waypoint
@@ -204,7 +207,7 @@ func WithWorkspaceRef(ref *pb.Ref_Workspace) Option {
 // attempt any connection at all regardless of other configuration (env
 // vars or waypoint config file). This will be used.
 //
-// If this is specified, the client MUST use a serverclient.ContextToken
+// If this is specified, the client MUST use a tokenutil.ContextToken
 // type for the PerRPCCredentials setting. This package and others will use
 // context overrides for the token. If you do not use this, things will break.
 func WithClient(client pb.WaypointClient) Option {

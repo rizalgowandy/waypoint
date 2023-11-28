@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 // Package cert has helpers for managing certificates in our services.
 //
 // The primary helper is the Cert struct, which manages a single TLS certificate.

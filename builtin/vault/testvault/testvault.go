@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 // Package testvault contains helpers for working with Vault in a test
 // environment.
 package testvault

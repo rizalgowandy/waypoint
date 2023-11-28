@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 // Package grpcmetadata contains functions for reading and writing waypoint specific
 // metadata to contexts, which is transmitted by RPC calls.
 package grpcmetadata

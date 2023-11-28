@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 // Package serverstate exports the interface and verification harness for
 // implementing a new state storage backend for the server.
 //

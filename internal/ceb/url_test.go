@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ceb
 
 import (
@@ -9,9 +12,9 @@ import (
 	hzntest "github.com/hashicorp/horizon/pkg/testutils/central"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hashicorp/waypoint/internal/server/singleprocess"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
 	serverptypes "github.com/hashicorp/waypoint/pkg/server/ptypes"
+	"github.com/hashicorp/waypoint/pkg/server/singleprocess"
 )
 
 func TestCEB_url(t *testing.T) {

@@ -1,7 +1,12 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
 	"context"
+	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -62,6 +67,9 @@ func (c *ReleaseCreateCommand) Run(args []string) int {
 
 		if c.flagDeployment == "" {
 			// Get the latest deployment
+			// NOTE(izaak): This doesn't guarantee we get the most recent
+			// *successful* deployment - we should eventually filter on
+			// Status rather than physical state.
 			resp, err := client.ListDeployments(ctx, &pb.ListDeploymentsRequest{
 				Application:   app.Ref(),
 				Workspace:     c.project.WorkspaceRef(),
@@ -112,6 +120,14 @@ func (c *ReleaseCreateCommand) Run(args []string) int {
 			}
 		}
 
+		if deploy.Status.State != pb.Status_SUCCESS {
+			app.UI.Output(strings.TrimSpace(
+				fmt.Sprintf(releaseUnsuccessfulDeployment, deploy.Sequence, deploy.Status.State)),
+				terminal.WithErrorStyle(),
+			)
+			return ErrSentinel
+		}
+
 		// If the latest release already deployed this then we're done.
 		if release != nil && release.DeploymentId == deploy.Id {
 			if c.flagRepeat {
@@ -156,17 +172,19 @@ func (c *ReleaseCreateCommand) Run(args []string) int {
 				terminal.WithWarningStyle())
 		}
 
-		// Status Report
-		app.UI.Output("")
-		_, err = app.StatusReport(ctx, &pb.Job_StatusReportOp{
-			Target: &pb.Job_StatusReportOp_Release{
-				Release: result.Release,
-			},
+		// Show input variable values used in build
+		// We do this here so that if the list is long, it doesn't
+		// push the deploy/release URLs off the top of the terminal.
+		app.UI.Output("Variables used:", terminal.WithHeaderStyle())
+		resp, err := c.project.Client().GetJob(ctx, &pb.GetJobRequest{
+			JobId: result.Release.JobId,
 		})
 		if err != nil {
 			app.UI.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
 			return ErrSentinel
 		}
+		tbl := fmtVariablesOutput(resp.VariableFinalValues)
+		c.ui.Table(tbl)
 
 		if result.Release.Url == "" {
 			app.UI.Output("\n"+strings.TrimSpace(releaseNoUrl),
@@ -175,7 +193,16 @@ func (c *ReleaseCreateCommand) Run(args []string) int {
 			return nil
 		}
 
-		app.UI.Output("\nRelease URL: %s", result.Release.Url, terminal.WithSuccessStyle())
+		releaseUrl := result.Release.Url
+		ru, err := url.Parse(releaseUrl)
+		if err != nil && ru.Scheme != "" {
+			return err
+		}
+		if ru.Scheme == "" && releaseUrl != "" {
+			releaseUrl = fmt.Sprintf("https://%s", releaseUrl)
+		}
+
+		app.UI.Output("\nRelease URL: %s", releaseUrl, terminal.WithSuccessStyle())
 		return nil
 	})
 	if err != nil {
@@ -251,7 +278,7 @@ Deployment %s marked as released.
 
 No release manager was configured and the configured platform doesn't
 natively support releases. This means that releasing doesn't generate any
-public URL. Waypoint marked the deployment aboved as "released" for server
+public URL. Waypoint marked the deployment above as "released" for server
 history and to prevent commands such as "waypoint destroy" from deleting
 the deployment by default.
 `
@@ -276,5 +303,10 @@ with matching generations share the same underlying resources.
 This means that your deployment plugin %[2]q performed an in-place update.
 For plugins that perform in-place updates, you can only release deployments
 of a different generation.
+`
+
+	releaseUnsuccessfulDeployment = `
+Warning: deployment v%[1]d was not successful (is in state %q),
+and cannot be released."
 `
 )

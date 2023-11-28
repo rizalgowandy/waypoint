@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package server
 
 import (
@@ -5,7 +8,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/golang/protobuf/ptypes/empty"
+	"github.com/imdario/mergo"
 	"github.com/mitchellh/go-testing-interface"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -13,10 +16,11 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	empty "google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/hashicorp/waypoint/internal/serverclient"
 	"github.com/hashicorp/waypoint/pkg/protocolversion"
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
+	"github.com/hashicorp/waypoint/pkg/tokenutil"
 )
 
 // TestServer starts a server and returns a gRPC client to that server.
@@ -104,7 +108,7 @@ func TestServer(t testing.T, impl pb.WaypointServer, opts ...TestOption) pb.Wayp
 			grpc.WithInsecure(),
 			grpc.WithUnaryInterceptor(protocolversion.UnaryClientInterceptor(vsnInfo)),
 			grpc.WithStreamInterceptor(protocolversion.StreamClientInterceptor(vsnInfo)),
-			grpc.WithPerRPCCredentials(serverclient.ContextToken(token)),
+			grpc.WithPerRPCCredentials(tokenutil.ContextToken(token)),
 		}
 
 		return grpc.DialContext(context.Background(), ln.Addr().String(), opts...)
@@ -131,6 +135,7 @@ func TestServer(t testing.T, impl pb.WaypointServer, opts ...TestOption) pb.Wayp
 		token = tokenResp.Token
 	}
 	conn, err = connect(token)
+
 	require.NoError(err)
 	t.Cleanup(func() { conn.Close() })
 	return pb.NewWaypointClient(conn)
@@ -238,4 +243,40 @@ func TestCookieContext(ctx context.Context, t testing.T, c pb.WaypointClient) co
 	require.NoError(t, err)
 	md := metadata.New(map[string]string{"wpcookie": resp.Config.Cookie})
 	return metadata.NewOutgoingContext(ctx, md)
+}
+
+// TestRunner registers a runner and returns the ID and a function to
+// deregister the runner. This uses t.Cleanup so that the runner will always
+// be deregistered on test completion.
+func TestRunner(t testing.T, client pb.WaypointClient, r *pb.Runner) (string, func()) {
+	require := require.New(t)
+	ctx := context.Background()
+
+	// Get the runner
+	if r == nil {
+		r = &pb.Runner{}
+	}
+	id, err := Id()
+	require.NoError(err)
+	require.NoError(mergo.Merge(r, &pb.Runner{Id: id}))
+
+	// Open the config stream
+	stream, err := client.RunnerConfig(ctx)
+	require.NoError(err)
+	t.Cleanup(func() { stream.CloseSend() })
+
+	// Register
+	require.NoError(stream.Send(&pb.RunnerConfigRequest{
+		Event: &pb.RunnerConfigRequest_Open_{
+			Open: &pb.RunnerConfigRequest_Open{
+				Runner: r,
+			},
+		},
+	}))
+
+	// Wait for first message to confirm we're registered
+	_, err = stream.Recv()
+	require.NoError(err)
+
+	return id, func() { stream.CloseSend() }
 }

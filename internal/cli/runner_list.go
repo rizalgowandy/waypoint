@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
@@ -5,9 +8,8 @@ import (
 	"strings"
 
 	"github.com/dustin/go-humanize"
-	"github.com/golang/protobuf/jsonpb"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/posener/complete"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
 	"github.com/hashicorp/waypoint/internal/clierrors"
@@ -41,25 +43,27 @@ func (c *RunnerListCommand) Run(args []string) int {
 	}
 
 	if len(resp.Runners) == 0 {
+		c.ui.Output("No runners found")
 		return 0
 	}
 
 	if c.flagJson {
-		var m jsonpb.Marshaler
-		m.Indent = "\t"
+		m := protojson.MarshalOptions{
+			Indent: "\t",
+		}
 		for _, t := range resp.Runners {
-			str, err := m.MarshalToString(t)
+			data, err := m.Marshal(t)
 			if err != nil {
 				c.ui.Output(clierrors.Humanize(err), terminal.WithErrorStyle())
 				return 1
 			}
 
-			fmt.Println(str)
+			fmt.Println(string(data))
 		}
 		return 0
 	}
 
-	tblHeaders := []string{"ID", "State", "Kind", "Last Registered"}
+	tblHeaders := []string{"ID", "State", "Kind", "Labels", "Last Registered"}
 	tbl := terminal.NewTable(tblHeaders...)
 
 	var kindStr string
@@ -78,19 +82,27 @@ func (c *RunnerListCommand) Run(args []string) int {
 			kindStr = "unknown"
 		}
 
-		if v, err := ptypes.Timestamp(r.LastSeen); err == nil {
-			lastSeenStr = humanize.Time(v)
+		if r.LastSeen != nil {
+			lastSeenStr = humanize.Time(r.LastSeen.AsTime())
 		}
 
 		stateStr = strings.ToLower(r.AdoptionState.String())
 		if stateStr == "" {
 			stateStr = "unknown"
 		}
+		// Omit label that the user didn't set from the output
+		delete(r.Labels, "waypoint.hashicorp.com/runner-hash")
+
+		var labelStr string
+		for k, v := range r.Labels {
+			labelStr += k + ":" + v + " "
+		}
 
 		tblColumn := []string{
 			r.Id,
 			stateStr,
 			kindStr,
+			labelStr,
 			lastSeenStr,
 		}
 

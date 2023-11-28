@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package version
 
 import (
@@ -10,7 +13,7 @@ var (
 	GitCommit   string
 	GitDescribe string
 
-	Version           = "0.7.0"
+	Version           = "0.12.0" // Note: This value should match /version/VERSION!
 	VersionPrerelease = ""
 	VersionMetadata   = ""
 )

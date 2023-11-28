@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import ApiService from 'waypoint/services/api';
 import { Empty } from 'google-protobuf/google/protobuf/empty_pb';
 import { ListOIDCAuthMethodsResponse } from 'waypoint-pb';

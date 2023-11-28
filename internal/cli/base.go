@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
@@ -170,6 +173,24 @@ func (c *baseCommand) checkDeprecatedFlags() error {
 	return nil
 }
 
+func (c *baseCommand) showValidations(validationResults config.ValidationResults) {
+	if len(validationResults) == 0 {
+		return
+	}
+
+	c.ui.Output("The following validation issues were detected:", terminal.WithHeaderStyle())
+
+	for _, vr := range validationResults {
+		if vr.Error != nil {
+			c.ui.Output(vr.Error.Error(), terminal.WithErrorStyle())
+		} else if vr.Warning != "" {
+			c.ui.Output(vr.Warning, terminal.WithWarningStyle())
+		}
+	}
+
+	c.ui.Output("")
+}
+
 // Init initializes the command by parsing flags, parsing the configuration,
 // setting up the project, etc. You can control what is done by using the
 // options.
@@ -178,14 +199,14 @@ func (c *baseCommand) checkDeprecatedFlags() error {
 // options will affect behavior of other functions that can be called later.
 //
 // In broad strokes, Init populates fields on the baseCommand by doing the following:
-// - Parse flags
-// - Parse input variables
-// - Creates a project client
-// - Triggers creation of the in-memory server (if necessary)
-// - Starts a local runner (if necessary)
-// - Attempts to find a waypoint.hcl config file, and parse it
-// - Determines which project/apps are being targeted, by looking at
-//   the -project and -app flags, the local config, the waypoint server.
+//   - Parse flags
+//   - Parse input variables
+//   - Creates a project client
+//   - Triggers creation of the in-memory server (if necessary)
+//   - Starts a local runner (if necessary)
+//   - Attempts to find a waypoint.hcl config file, and parse it
+//   - Determines which project/apps are being targeted, by looking at
+//     the -project and -app flags, the local config, the waypoint server.
 func (c *baseCommand) Init(opts ...Option) error {
 	baseCfg := baseConfig{}
 
@@ -298,10 +319,14 @@ func (c *baseCommand) Init(opts ...Option) error {
 	// 1. Parse the configuration
 
 	if !baseCfg.NoConfig {
+		var vr config.ValidationResults
+
 		// Try parsing config
-		c.cfg, err = c.initConfig("")
+		c.cfg, vr, err = c.initConfig("")
+
+		c.showValidations(vr)
+
 		if err != nil {
-			c.logError(c.Log, "failed to load config", err)
 			return err
 		}
 

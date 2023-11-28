@@ -59,15 +59,16 @@ Troubleshooting:
 ### Running with a local Waypoint Server
 
 This option assumes there is a Waypoint server running
-at `https://localhost:9702`. If you need to make any API changes to go along
+at `https://localhost:9702`, which you can verify by visiting https://localhost:9702 in the browser. 
+
+If you need to make any API changes to go along
 with frontend changes, or just wish to run the server locally, you can follow
 the instructions to run [Waypoint server locally](https://www.waypointproject.io/docs/server/run).
 
-Note: You'll need to visit the above address in the same browser session to
-accept the invalid certificate warning in your browser for this to work.
-
-- `ember serve local`
-- The app will be available at [http://localhost:4200](http://localhost:4200).
+- Visit https://localhost:9702, and accept the invalid certificate warning.
+- `ember serve local` 
+- The app will be available at [http://localhost:4200](http://localhost:4200). Make sure that you are in the same browser session (e.g. a new tab) where you accepted the invalid certificate warning above.
+- When prompted for a token, run `waypoint user token` in the command line, and enter the response. 
 
 If you need to build the server and run it locally, you'll want to stop the existing instance, build and reinstall it in docker:
 
@@ -85,12 +86,14 @@ if you've made API changes in `/internal/server` and want to use those on the fr
 
 - MacOS only: `brew install gnu-sed` then follow the instructions to replace the default `sed`
 - Download [the 1.1.2 release of `mockery`](https://github.com/vektra/mockery/releases/tag/v1.1.2) and install in your `/go/bin` directory
-- install `ts-protoc-gen`: `yarn global add ts-protoc-gen` or `npm i -g ts-protoc-gen`
-- install `protoc-gen-grpc-web`: `brew install protoc-gen-grpc-web`
+- Install [`protoc` 3.17.3](https://github.com/protocolbuffers/protobuf/releases/tag/v3.17.3)
+- Install `ts-protoc-gen`: `yarn global add ts-protoc-gen` or `npm i -g ts-protoc-gen`
+- Install `protoc-gen-grpc-web`: `brew install protoc-gen-grpc-web`
 
 #### Generate the API definitions
 
-- `go generate ./internal/server`
+- `make docker/tools`
+- `make docker/gen/server`
 - `make gen/ts`
 
 ### Code Generators
@@ -102,31 +105,11 @@ Make use of the many generators for code, try `ember help generate` for more det
 - `ember test`
 - `ember test --server`
 
-(See “Percy” section for other ways of running the test suite)
-
 ### Linting
 
 - `npm run lint:hbs`
 - `npm run lint:js`
 - `npm run lint:js -- --fix`
-
-### Percy
-
-We use [Percy](https://percy.io) for visual regression testing.
-
-All the Percy snapshotting happens in [percy-test.ts](./tests/acceptance/percy-test.ts). The aim is to have a test for every significant state in this file. We keep it all in one file, rather than weaving Percy snapshotting through the rest of the test suite. We think this makes it more maintainable.
-
-We are incrementally adding Percy tests, so it’s rather minimal at the moment. If you’d like to add a Percy test, please go ahead.
-
-To run tests with Percy enabled (that is, Percy ready to receive snapshots), run the following:
-
-```sh
-yarn ember:test:percy
-```
-
-This is exactly the same command we run in CI. You will need to set the env var `PERCY_TOKEN` with a valid Percy token.
-
-If you need access to our Percy account, please ask someone from @hashicorp/waypoint-frontend.
 
 ### Building
 
@@ -144,4 +127,3 @@ Specify what it takes to deploy your app.
 - Development Browser Extensions
   - [ember inspector for chrome](https://chrome.google.com/webstore/detail/ember-inspector/bmdblncegkenkacieihfhpjfppoconhi)
   - [ember inspector for firefox](https://addons.mozilla.org/en-US/firefox/addon/ember-inspector/)
-

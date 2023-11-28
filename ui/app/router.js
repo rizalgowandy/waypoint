@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import EmberRouter from '@ember/routing/router';
 import config from 'waypoint/config/environment';
 
@@ -40,7 +45,7 @@ Router.map(function () {
     this.route('projects', { path: '/' }, function () {
       this.route('project', { path: '/:project_id' }, function () {
         this.route('apps', function () {
-          this.route('new');
+          this.route('create');
         });
         this.route('app', { path: '/app/:app_id' }, function () {
           this.route('builds');
@@ -66,7 +71,7 @@ Router.map(function () {
           this.route('config-variables');
         });
       });
-      this.route('new');
+      this.route('create');
     });
   });
 });

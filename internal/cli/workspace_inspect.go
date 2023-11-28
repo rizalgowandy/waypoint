@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package cli
 
 import (
@@ -5,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/dustin/go-humanize"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/hashicorp/waypoint-plugin-sdk/terminal"
 	"github.com/hashicorp/waypoint/internal/clierrors"
 	"github.com/hashicorp/waypoint/internal/pkg/flag"
@@ -72,8 +74,8 @@ func (c *WorkspaceInspectCommand) Run(args []string) int {
 	c.ui.Output("Workspace Info:", terminal.WithHeaderStyle())
 
 	var lastActiveTime string
-	if t, err := ptypes.Timestamp(workspace.ActiveTime); err == nil {
-		lastActiveTime = humanize.Time(t)
+	if workspace.ActiveTime != nil {
+		lastActiveTime = humanize.Time(workspace.ActiveTime.AsTime())
 	}
 
 	c.ui.NamedValues([]terminal.NamedValue{

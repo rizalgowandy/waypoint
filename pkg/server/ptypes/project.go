@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 package ptypes
 
 import (
@@ -56,7 +59,12 @@ func ValidateProject(p *pb.Project) error {
 // ValidateProjectRules
 func ValidateProjectRules(p *pb.Project) []*validation.FieldRules {
 	return []*validation.FieldRules{
-		validation.Field(&p.Name, validation.Required),
+
+		validation.Field(&p.Name,
+			validation.Required,
+			validation.By(validatePathToken),
+		),
+
 		validation.Field(&p.WaypointHcl, isWaypointHcl(p)),
 
 		validationext.StructField(&p.DataSource, func() []*validation.FieldRules {
@@ -83,6 +91,31 @@ func ValidateUpsertProjectRequest(v *pb.UpsertProjectRequest) error {
 
 // ValidateGetProjectRequest
 func ValidateGetProjectRequest(v *pb.GetProjectRequest) error {
+	return validationext.Error(validation.ValidateStruct(v,
+		validation.Field(&v.Project, validation.Required),
+	))
+}
+
+// ValidateListProjectsRequest
+func ValidateListProjectsRequest(v *pb.ListProjectsRequest) error {
+	return validationext.Error(validation.ValidateStruct(v,
+		validationext.StructField(&v.Pagination, func() []*validation.FieldRules {
+			return ValidatePaginationRequestRules(v.Pagination)
+		}),
+	))
+}
+
+// ValidateUIListProjectsRequest
+func ValidateUIListProjectsRequest(v *pb.UI_ListProjectsRequest) error {
+	return validationext.Error(validation.ValidateStruct(v,
+		validationext.StructField(&v.Pagination, func() []*validation.FieldRules {
+			return ValidatePaginationRequestRules(v.Pagination)
+		}),
+	))
+}
+
+// ValidateDestroyProjectRequest
+func ValidateDestroyProjectRequest(v *pb.DestroyProjectRequest) error {
 	return validationext.Error(validation.ValidateStruct(v,
 		validation.Field(&v.Project, validation.Required),
 	))

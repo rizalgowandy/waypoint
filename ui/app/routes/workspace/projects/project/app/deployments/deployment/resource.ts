@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import Route from '@ember/routing/route';
 import { StatusReport } from 'waypoint-pb';
 import { Model as DeploymentRouteModel } from '../deployment';
@@ -12,15 +17,15 @@ type Model = StatusReport.Resource.AsObject;
 
 export default class extends Route {
   @action
-  breadcrumbs(): Breadcrumb[] {
-    let deployment = this.modelFor(
-      'workspace.projects.project.app.deployments.deployment'
-    ) as DeploymentRouteModel;
+  breadcrumbs(model: Model): Breadcrumb[] {
     return [
       {
-        label: `v${deployment.sequence}`,
+        label: 'Resources',
         route: 'workspace.projects.project.app.deployments.deployment',
-        icon: 'upload',
+      },
+      {
+        label: model.name,
+        route: 'workspace.projects.project.app.deployments.deployment.resource',
       },
     ];
   }

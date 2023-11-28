@@ -1,3 +1,8 @@
+{{!
+  Copyright (c) HashiCorp, Inc.
+  SPDX-License-Identifier: BUSL-1.1
+}}
+
 <span data-test-image-ref class="image-ref" title="Image">
   <span class="image-ref__uri" data-test-image-ref-uri>
     {{this.uri}}
@@ -16,7 +21,7 @@
       class="image-ref__copy-button focus-ring"
       title={{t "image-ref.copy-button-title"}}
     >
-      <FlightIcon @name={{if this.displayCopySuccess.isRunning "copy-success" "copy-action"}} />
+      <FlightIcon @name={{if this.displayCopySuccess.isRunning "clipboard-checked" "clipboard-copy"}} />
     </CopyButton>
   {{/if}}
-</span> 
+</span>

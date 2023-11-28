@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: BUSL-1.1
+
 // Package execwriter contains helpers for writing "waypoint exec"
 // streams via an io.Writer. Data written to the io.Writer will be
 // automatically sent to the gRPC stream.
@@ -6,9 +9,9 @@ package execwriter
 import (
 	"io"
 
-	"github.com/golang/protobuf/proto"
-	grpc_net_conn "github.com/mitchellh/go-grpc-net-conn"
+	grpc_net_conn "github.com/hashicorp/go-grpc-net-conn"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 
 	pb "github.com/hashicorp/waypoint/pkg/server/gen"
 )

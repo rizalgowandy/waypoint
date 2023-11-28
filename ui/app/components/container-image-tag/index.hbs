@@ -1,5 +1,12 @@
-{{#each this.imageRefs as |imageRef|}}
-  <ImageRef @imageRef={{imageRef}} />
-{{else}}
-  n/a
-{{/each}}
+{{!
+  Copyright (c) HashiCorp, Inc.
+  SPDX-License-Identifier: BUSL-1.1
+}}
+
+<div class="container-image-tag" data-test-container-image-tag>
+  {{#each this.imageRefs key="uri" as |imageRef|}}
+    <ImageRef @imageRef={{imageRef}} />
+  {{else}}
+    n/a
+  {{/each}}
+</div>

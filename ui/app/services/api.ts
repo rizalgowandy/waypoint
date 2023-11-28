@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) HashiCorp, Inc.
+ * SPDX-License-Identifier: BUSL-1.1
+ */
+
 import {
   Application,
   Build,
@@ -230,6 +235,7 @@ export default class ApiService extends Service {
       } else {
         variable.setStr(v.str);
       }
+      variable.setSensitive(v.sensitive);
       return variable;
     });
     return varProtosList;
